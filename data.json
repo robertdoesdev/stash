@@ -1,0 +1,42 @@
+{
+  "app": {
+    "name": "Stash",
+    "tagline": "Your school papers, sorted",
+    "storageQuotaMB": 2048,
+    "cafePinExpiryMinutes": 10
+  },
+  "categories": [
+    { "id": "Receipt", "label": "Receipt", "badge": "RCT", "color": "accent" },
+    { "id": "Docket", "label": "Docket", "badge": "DKT", "color": "accent-2" },
+    { "id": "Admin", "label": "Admin", "badge": "ADM", "color": "accent-3" }
+  ],
+  "levels": ["100L", "200L", "300L", "400L", "500L"],
+  "semesters": ["First", "Second"],
+  "documentSchema": {
+    "id": null,
+    "name": "",
+    "category": "Receipt",
+    "level": "100L",
+    "semester": "First",
+    "course": "",
+    "rrr": "",
+    "amount": 0,
+    "date": ""
+  },
+  "profileSchema": {
+    "name": "",
+    "matric": "",
+    "email": "",
+    "department": "",
+    "level": "100L",
+    "avatar": null
+  },
+  "defaultProfile": {
+    "name": "",
+    "matric": "",
+    "email": "",
+    "department": "",
+    "level": "100L",
+    "avatar": null
+  }
+}

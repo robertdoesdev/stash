@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Stash</title>
+<title>Stash — Your school papers, sorted</title>
 <meta name="theme-color" content="#0A0F1E">
 <link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -12,22 +12,24 @@
 </head>
 <body>
 
-<!-- ============ AUTH SCREEN ============ -->
-<div id="authScreen" class="auth-screen">
-  <div class="auth-panel">
+<div class="toast" id="toast"></div>
+
+<!-- ============ AUTH SHELL (#login, #signup) ============ -->
+<div id="authShell" class="auth-shell">
+  <div class="auth-glow"></div>
+
+  <div class="auth-card">
     <div class="brand">
       <svg width="34" height="34" viewBox="0 0 34 34" fill="none"><rect width="34" height="34" rx="9" fill="var(--accent)"/><path d="M9 11h16M9 17h16M9 23h10" stroke="var(--bg)" stroke-width="2.4" stroke-linecap="round"/></svg>
-      <span>Stash
-
-      </span>
+      <span>Stash</span>
     </div>
 
     <!-- ===== LOGIN VIEW ===== -->
-    <div class="auth-view" id="view-login">
+    <section class="view" id="view-login">
       <h1>Welcome back</h1>
       <p class="auth-sub">Sign in to reach your receipts, dockets, and admin files.</p>
 
-      <button type="button" class="btn btn-social" onclick="Auth.login()">
+      <button type="button" class="btn btn-social" id="googleLoginBtn">
         <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
           <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62z"/>
           <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.94v2.33A9 9 0 0 0 9 18z"/>
@@ -37,103 +39,122 @@
         <span>Sign in with Google</span>
       </button>
 
-      <button type="button" class="btn btn-social" onclick="Auth.login()">
-        <svg width="18" height="18" viewBox="0 0 16 16" fill="#ffffff" xmlns="http://www.w3.org/2000/svg">
-          <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
-            0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13
-            -.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07
-            -1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82
-            a7.5 7.5 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15
-            0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38
-            A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
-        </svg>
-        <span>Sign in with GitHub</span>
-      </button>
-
       <div class="divider"><span>OR</span></div>
 
-      <form id="loginForm" onsubmit="event.preventDefault(); Auth.login();">
+      <form id="loginForm" novalidate>
         <label class="field">
-          <span>Matric number/Email</span>
-          <input type="text" id="loginEmail" placeholder="e.g. 20/1234 or you@school.edu">
+          <span>Matric number or email</span>
+          <input type="text" id="loginId" placeholder="e.g. 20/1234 or you@school.edu" required>
         </label>
+
         <div class="password-row">
           <label class="field-label" for="loginPassword">Password</label>
-          <a href="#forgot" class="forgot-link" data-view-link="forgot">Forgot password?</a>
+          <button type="button" class="forgot-link" id="openForgotModal">Forgot password?</button>
         </div>
-        <input type="password" id="loginPassword" placeholder="••••••••">
+        <div class="password-field">
+          <input type="password" id="loginPassword" placeholder="••••••••" required>
+          <button type="button" class="pw-toggle" data-target="loginPassword" aria-label="Show password">
+            <i data-ic="eye"></i>
+          </button>
+        </div>
+        <span class="field-error hidden" id="loginError">That matric number/email and password don't match.</span>
+
+        <label class="remember-row">
+          <input type="checkbox" id="rememberMe" checked>
+          <span>Remember me on this device</span>
+        </label>
 
         <button type="submit" class="btn btn-primary btn-block">Log in</button>
       </form>
 
-      <p class="auth-switch">New here? <a href="#signup" data-view-link="signup">Create an account</a></p>
-    </div>
+      <p class="auth-switch">New here? <a href="#signup">Create an account</a></p>
+      <a href="#cafe-print" class="cafe-link">Need to print at a cafe? <span>Open Cafe Print &rarr;</span></a>
+    </section>
 
     <!-- ===== SIGNUP VIEW ===== -->
-    <div class="auth-view" id="view-signup" hidden>
+    <section class="view" id="view-signup" hidden>
       <h1>Set up your stash</h1>
-      <p class="auth-sub">Input a few details so we can tag your documents correctly.</p>
+      <p class="auth-sub">A few details so we can tag your documents correctly.</p>
 
-      <form id="signupForm" onsubmit="event.preventDefault(); Auth.signup();">
+      <button type="button" class="btn btn-social" id="googleSignupBtn">
+        <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+          <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62z"/>
+          <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.94v2.33A9 9 0 0 0 9 18z"/>
+          <path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.67 9c0-.59.1-1.16.28-1.7V4.97H.94A9 9 0 0 0 0 9c0 1.45.35 2.83.94 4.03l3.01-2.33z"/>
+          <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .94 4.97l3.01 2.33C4.66 5.17 6.65 3.58 9 3.58z"/>
+        </svg>
+        <span>Sign up with Google</span>
+      </button>
+
+      <div class="divider"><span>OR</span></div>
+
+      <form id="signupForm" novalidate>
         <label class="field">
           <span>Full name</span>
-          <input type="text" id="suName" placeholder="Adaeze Okafor">
+          <input type="text" id="suName" placeholder="Adaeze Okafor" required>
+        </label>
+        <label class="field">
+          <span>Matric number</span>
+          <input type="text" id="suMatric" placeholder="e.g. 20/1234" required>
         </label>
         <label class="field">
           <span>Level</span>
-          <select id="suLevel">
-            <option>100L</option><option>200L</option><option>300L</option><option>400L</option><option>500L</option>
-          </select>
+          <select id="suLevel"></select>
         </label>
         <label class="field">
           <span>Email</span>
-          <input type="email" id="suEmail" placeholder="you@school.edu">
+          <input type="email" id="suEmail" placeholder="you@school.edu" required>
         </label>
+
         <label class="field">
           <span>Password</span>
-          <input type="password" id="suPassword" placeholder="Create a password">
+          <div class="password-field">
+            <input type="password" id="suPassword" placeholder="Create a password" required minlength="6">
+            <button type="button" class="pw-toggle" data-target="suPassword" aria-label="Show password">
+              <i data-ic="eye"></i>
+            </button>
+          </div>
         </label>
+
+        <label class="field">
+          <span>Confirm password</span>
+          <div class="password-field">
+            <input type="password" id="suConfirmPassword" placeholder="Re-enter your password" required minlength="6">
+            <button type="button" class="pw-toggle" data-target="suConfirmPassword" aria-label="Show password">
+              <i data-ic="eye"></i>
+            </button>
+          </div>
+        </label>
+        <span class="field-error hidden" id="signupError">Passwords don't match.</span>
+
         <button type="submit" class="btn btn-primary btn-block">Create account</button>
       </form>
 
-      <p class="auth-switch">Already registered? <a href="#login" data-view-link="login">Log in</a></p>
-    </div>
-
-    <!-- ===== FORGOT PASSWORD VIEW ===== -->
-    <div class="auth-view" id="view-forgot" hidden>
-      <h1>Reset your password</h1>
-      <p class="auth-sub">Enter the email tied to your account and we'll send a reset link.</p>
-
-      <form id="resetForm" onsubmit="event.preventDefault(); document.getElementById('resetConfirmation').hidden = false; this.reset();">
-        <label class="field">
-          <span>Email</span>
-          <input type="email" id="resetEmail" placeholder="you@school.edu">
-        </label>
-        <button type="submit" class="btn btn-primary btn-block">Send reset link</button>
-      </form>
-
-      <p class="auth-hint" id="resetConfirmation" hidden>Check your inbox for a link to reset your password.</p>
-      <p class="auth-switch">Remembered it? <a href="#login" data-view-link="login">Log in</a></p>
-      <p class="auth-switch">Don't have an account? <a href="#signup" data-view-link="signup">Create your account</a></p>
-    </div>
-
-  </div>
-
-  <div class="auth-showcase">
-    <div class="showcase-card">
-      <div class="showcase-tag">Semester close-out</div>
-      <div class="showcase-title">Clearance packet ready in one tap</div>
-      <div class="showcase-body">
-        <div class="mini-doc"><span>ACC 102</span><small>Receipt · ₦8,500</small></div>
-        <div class="mini-doc"><span>AMS 104</span><small>Docket · Verified</small></div>
-        <div class="mini-doc"><span>Hostel fee</span><small>Receipt · ₦45,000</small></div>
-      </div>
-      <button class="showcase-btn">Compile 3 files → 1 PDF</button>
-    </div>
+      <p class="auth-switch">Already registered? <a href="#login">Log in</a></p>
+    </section>
   </div>
 </div>
 
-<!-- ============ APP SHELL ============ -->
+<!-- ============ FORGOT PASSWORD MODAL ============ -->
+<div class="modal-overlay hidden" id="forgotModal">
+  <div class="modal">
+    <button type="button" class="modal-close" id="closeForgotModal" aria-label="Close">&times;</button>
+    <h2>Reset your password</h2>
+    <p class="auth-sub">Enter the email or matric number tied to your account and we'll send a reset link.</p>
+
+    <form id="forgotForm" novalidate>
+      <label class="field">
+        <span>Matric number or email</span>
+        <input type="text" id="forgotId" placeholder="e.g. 20/1234 or you@school.edu" required>
+      </label>
+      <button type="submit" class="btn btn-primary btn-block">Send reset link</button>
+    </form>
+
+    <p class="auth-hint hidden" id="forgotConfirmation">Check your inbox for a link to reset your password.</p>
+  </div>
+</div>
+
+<!-- ============ APP SHELL (#dashboard, #documents, #profile) ============ -->
 <div id="appShell" class="app-shell hidden">
 
   <aside class="sidebar" id="sidebar">
@@ -142,352 +163,203 @@
       <span>Stash</span>
     </div>
     <nav class="nav">
-      <button class="nav-item active" data-view="dashboard"><i data-ic="home"></i>Dashboard</button>
-      <button class="nav-item" data-view="documents"><i data-ic="folder"></i>My Documents</button>
-      <button class="nav-item" data-view="upload"><i data-ic="upload"></i>Scan &amp; Upload</button>
-      <button class="nav-item" data-view="clearance"><i data-ic="stack"></i>Clearance Export</button>
-      <button class="nav-item" data-view="cafepin"><i data-ic="pin"></i>Cafe Quick-Print</button>
-      <button class="nav-item" data-view="profile"><i data-ic="user"></i>Profile</button>
-      <button class="nav-item" data-view="settings"><i data-ic="gear"></i>Settings</button>
-      <button class="nav-item" data-view="help"><i data-ic="help"></i>Help &amp; Support</button>
+      <a class="nav-item" href="#dashboard" data-route="dashboard"><i data-ic="home"></i>Dashboard</a>
+      <a class="nav-item" href="#documents" data-route="documents"><i data-ic="folder"></i>My Documents</a>
+      <a class="nav-item" href="#profile" data-route="profile"><i data-ic="user"></i>Profile</a>
+      <a class="nav-item" href="#cafe-print" data-route="cafe-print"><i data-ic="pin"></i>Cafe Quick-Print</a>
     </nav>
+
     <div class="storage-mini">
       <div class="storage-bar"><div class="storage-bar-fill" id="sidebarStorageFill"></div></div>
-      <span id="sidebarStorageText">62% of 2GB used</span>
+      <span id="sidebarStorageText">0% of 2GB used</span>
     </div>
-    <button class="btn btn-ghost btn-block" onclick="Auth.logout()">Log out</button>
+
+    <button class="btn btn-ghost btn-block" id="logoutBtn">Log out</button>
   </aside>
 
-  <div class="scrim" id="scrim" onclick="UI.closeSidebar()"></div>
+  <div class="scrim" id="scrim"></div>
 
   <main class="main">
     <header class="topbar">
-      <button class="icon-btn hamburger" onclick="UI.openSidebar()"><i data-ic="menu"></i></button>
+      <button class="icon-btn hamburger" id="openSidebarBtn"><i data-ic="menu"></i></button>
       <div class="search">
         <i data-ic="search"></i>
-        <input type="text" id="globalSearch" placeholder="Search receipts, dockets, courses…" oninput="Views.filterDocuments()">
+        <input type="text" id="globalSearch" placeholder="Search receipts, dockets, courses…">
       </div>
-      <button class="icon-btn theme-toggle" onclick="UI.toggleTheme()" title="Toggle day/night">
+      <button class="icon-btn theme-toggle" id="themeToggleBtn" title="Toggle day/night">
         <i data-ic="sun" class="icon-sun"></i><i data-ic="moon" class="icon-moon"></i>
       </button>
-      <div class="avatar" id="topAvatar">A</div>
+      <div class="avatar" id="topAvatar">S</div>
     </header>
 
     <!-- ---- DASHBOARD ---- -->
-    <section class="view active" id="view-dashboard">
+    <section class="view" id="view-dashboard">
       <div class="view-head">
-        <h1 id="greeting">Good to see you, Adaeze</h1>
+        <h1 id="greeting">Good to see you</h1>
         <p class="view-sub">Here's what's sitting in your vault right now.</p>
       </div>
 
       <div class="dash-grid">
-        <div class="card ring-card">
+        <div class="panel ring-panel">
           <svg viewBox="0 0 120 120" class="ring">
             <circle cx="60" cy="60" r="50" class="ring-track"/>
             <circle cx="60" cy="60" r="50" class="ring-fill" id="storageRing"/>
           </svg>
-          <div class="ring-center"><strong id="ringPct">62%</strong><span>of 2 GB</span></div>
-          <div class="ring-legend">
-            <div><i class="dot dot-a"></i>Receipts <span id="legReceipts">—</span></div>
-            <div><i class="dot dot-b"></i>Dockets <span id="legDockets">—</span></div>
-            <div><i class="dot dot-c"></i>Admin <span id="legAdmin">—</span></div>
-          </div>
+          <div class="ring-center"><strong id="ringPct">0%</strong><span>of 2 GB</span></div>
+          <div class="ring-legend" id="ringLegend"></div>
         </div>
 
-        <div class="card stat-stack">
-          <button class="stat" data-view="documents"><span class="stat-num" id="statTotal">0</span><span class="stat-label">Total documents</span></button>
-          <button class="stat" data-view="upload"><span class="stat-num" id="statMonth">0</span><span class="stat-label">Added this month</span></button>
-          <button class="stat" data-view="clearance"><span class="stat-num" id="statFlagged">0</span><span class="stat-label">Ready for clearance</span></button>
+        <div class="panel stat-stack">
+          <a class="stat" href="#documents"><span class="stat-num" id="statTotal">0</span><span class="stat-label">Total documents</span></a>
+          <a class="stat" href="#documents"><span class="stat-num" id="statMonth">0</span><span class="stat-label">Added this month</span></a>
+          <a class="stat" href="#documents"><span class="stat-num" id="statFlagged">0</span><span class="stat-label">Selected for clearance</span></a>
         </div>
 
-        <div class="card quick-actions">
+        <div class="panel quick-actions">
           <h3>Quick actions</h3>
-          <button class="qa" data-view="upload"><i data-ic="camera"></i>Snap a receipt</button>
-          <button class="qa" data-view="clearance"><i data-ic="stack"></i>Build clearance packet</button>
-          <button class="qa" data-view="cafepin"><i data-ic="pin"></i>Generate cafe PIN</button>
+          <a class="qa" href="#documents"><i data-ic="upload"></i>Scan or upload a file</a>
+          <a class="qa" href="#documents"><i data-ic="stack"></i>Build clearance packet</a>
+          <a class="qa" href="#cafe-print"><i data-ic="pin"></i>Cafe quick-print</a>
         </div>
       </div>
 
-      <div class="card">
-        <div class="card-head">
+      <div class="section-divider"></div>
+
+      <div>
+        <div class="section-head">
           <h3>Recent activity</h3>
-          <button class="link-btn" data-view="documents">See all</button>
+          <a class="link-btn" href="#documents">See all</a>
         </div>
         <div class="doc-list" id="recentList"></div>
       </div>
     </section>
 
     <!-- ---- DOCUMENTS ---- -->
-    <section class="view" id="view-documents">
+    <section class="view" id="view-documents" hidden>
       <div class="view-head">
         <h1>My Documents</h1>
-        <p class="view-sub">Everything you've saved, tagged and searchable.</p>
+        <p class="view-sub">Upload new files, tag them, and pick a set for clearance.</p>
       </div>
 
-      <div class="filter-row">
-        <select id="fLevel" onchange="Views.filterDocuments()"><option value="">All levels</option><option>100L</option><option>200L</option><option>300L</option><option>400L</option><option>500L</option></select>
-        <select id="fSemester" onchange="Views.filterDocuments()"><option value="">All semesters</option><option>First</option><option>Second</option></select>
-        <select id="fCategory" onchange="Views.filterDocuments()"><option value="">All categories</option><option>Receipt</option><option>Docket</option><option>Admin</option></select>
-        <div class="view-toggle">
-          <button class="vt active" data-mode="list" onclick="Views.setDocMode('list')"><i data-ic="list"></i></button>
-          <button class="vt" data-mode="grid" onclick="Views.setDocMode('grid')"><i data-ic="grid"></i></button>
+      <div class="panel dropzone" id="dropzone">
+        <input type="file" id="fileInput" accept="image/*,.pdf" multiple hidden>
+        <i data-ic="upload" class="drop-icon"></i>
+        <h3>Drag a file here, or</h3>
+        <button class="btn btn-primary" type="button" id="chooseFileBtn">Choose file</button>
+        <span class="drop-hint">PDF, JPG or PNG · Remita slips, dockets, bank receipts</span>
+      </div>
+
+      <form class="panel meta-form hidden" id="metaForm" novalidate>
+        <h3>Add details</h3>
+        <label class="field"><span>Document name</span><input type="text" id="metaName" required></label>
+        <div class="field-row">
+          <label class="field"><span>RRR / Reference</span><input type="text" id="metaRRR" placeholder="Optional"></label>
+          <label class="field"><span>Amount (₦)</span><input type="text" id="metaAmount" placeholder="0"></label>
         </div>
+        <div class="field-row">
+          <label class="field"><span>Date</span><input type="date" id="metaDate"></label>
+          <label class="field"><span>Category</span><select id="metaCategory"></select></label>
+        </div>
+        <div class="field-row">
+          <label class="field"><span>Level</span><select id="metaLevel"></select></label>
+          <label class="field"><span>Semester</span><select id="metaSemester"></select></label>
+        </div>
+        <label class="field"><span>Course code (optional)</span><input type="text" id="metaCourse" placeholder="e.g. ACC 102"></label>
+        <div class="drop-actions">
+          <button type="button" class="btn btn-ghost" id="cancelUploadBtn">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save to vault</button>
+        </div>
+      </form>
+
+      <div class="section-divider"></div>
+
+      <div class="filter-row">
+        <select id="fLevel"><option value="">All levels</option></select>
+        <select id="fSemester"><option value="">All semesters</option></select>
+        <select id="fCategory"><option value="">All categories</option></select>
+        <button class="btn btn-primary btn-lg" id="compileBtn" type="button">
+          <i data-ic="stack"></i>Compile selected (<span id="ceCount">0</span>)
+        </button>
       </div>
 
       <div class="doc-list" id="docList"></div>
       <div class="empty-state hidden" id="docEmpty">
         <i data-ic="folder" class="empty-icon"></i>
-        <h3>Nothing matches those filters</h3>
-        <p>Try clearing a filter, or scan your first document.</p>
-        <button class="btn btn-primary" data-view="upload">Scan a document</button>
-      </div>
-    </section>
-
-    <!-- ---- UPLOAD / SCAN ---- -->
-    <section class="view" id="view-upload">
-      <div class="view-head">
-        <h1>Scan &amp; Upload</h1>
-        <p class="view-sub">Drop a file, or snap a photo — Dockit reads the details for you.</p>
-      </div>
-
-      <div class="card dropzone" id="dropzone">
-        <input type="file" id="fileInput" accept="image/*,.pdf" capture="environment" multiple hidden>
-        <i data-ic="upload" class="drop-icon"></i>
-        <h3>Drag a file here, or</h3>
-        <div class="drop-actions">
-          <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">Choose file</button>
-          <button class="btn btn-secondary" onclick="Upload.openCamera()"><i data-ic="camera"></i>Use camera</button>
-        </div>
-        <span class="drop-hint">PDF, JPG or PNG · Remita slips, dockets, bank receipts</span>
-      </div>
-
-      <div class="card ocr-panel hidden" id="ocrPanel">
-        <div class="ocr-preview">
-          <img id="ocrImagePreview" alt="Document preview">
-          <div class="ocr-status" id="ocrStatus"><span class="spinner"></span>Reading document…</div>
-        </div>
-        <form class="ocr-form" onsubmit="Upload.saveDocument(event)">
-          <h3>Confirm details</h3>
-          <label class="field"><span>Document name</span><input type="text" id="metaName" required></label>
-          <div class="field-row">
-            <label class="field"><span>RRR / Reference</span><input type="text" id="metaRRR" placeholder="Auto-detected"></label>
-            <label class="field"><span>Amount (₦)</span><input type="text" id="metaAmount" placeholder="Auto-detected"></label>
-          </div>
-          <div class="field-row">
-            <label class="field"><span>Date</span><input type="date" id="metaDate"></label>
-            <label class="field"><span>Category</span>
-              <select id="metaCategory"><option>Receipt</option><option>Docket</option><option>Admin</option></select>
-            </label>
-          </div>
-          <div class="field-row">
-            <label class="field"><span>Level</span>
-              <select id="metaLevel"><option>100L</option><option>200L</option><option>300L</option><option>400L</option><option>500L</option></select>
-            </label>
-            <label class="field"><span>Semester</span>
-              <select id="metaSemester"><option>First</option><option>Second</option></select>
-            </label>
-          </div>
-          <label class="field"><span>Course code (optional)</span><input type="text" id="metaCourse" placeholder="e.g. ACC 102"></label>
-          <div class="drop-actions">
-            <button type="button" class="btn btn-ghost" onclick="Upload.cancel()">Cancel</button>
-            <button type="submit" class="btn btn-primary">Save to vault</button>
-          </div>
-        </form>
-      </div>
-    </section>
-
-    <!-- ---- CLEARANCE EXPORT ---- -->
-    <section class="view" id="view-clearance">
-      <div class="view-head">
-        <h1>Clearance Export</h1>
-        <p class="view-sub">Pick a semester's receipts and compile one clean PDF for submission.</p>
-      </div>
-
-      <div class="filter-row">
-        <select id="ceLevel" onchange="Views.renderClearanceList()"><option value="">All levels</option><option>100L</option><option>200L</option><option>300L</option><option>400L</option><option>500L</option></select>
-        <select id="ceSemester" onchange="Views.renderClearanceList()"><option value="">All semesters</option><option>First</option><option>Second</option></select>
-      </div>
-
-      <div class="card">
-        <div class="card-head">
-          <h3>Select documents to include</h3>
-          <span id="ceCount" class="muted">0 selected</span>
-        </div>
-        <div class="check-list" id="clearanceList"></div>
-      </div>
-
-      <button class="btn btn-primary btn-lg" onclick="Clearance.compile()"><i data-ic="stack"></i>Compile packet</button>
-    </section>
-
-    <!-- ---- CAFE QUICK-PRINT ---- -->
-    <section class="view" id="view-cafepin">
-      <div class="view-head">
-        <h1>Cafe Quick-Print PIN</h1>
-        <p class="view-sub">Let a cyber cafe open one printable file — no login, expires fast.</p>
-      </div>
-
-      <div class="card cafe-card">
-        <label class="field"><span>Choose a document</span>
-          <select id="cafeDocSelect"></select>
-        </label>
-        <button class="btn btn-primary" onclick="CafePin.generate()">Generate PIN</button>
-
-        <div class="pin-result hidden" id="pinResult">
-          <div class="pin-display" id="pinDisplay">— — — —</div>
-          <p class="muted">Valid for <span id="pinTimer">10:00</span> · single use</p>
-          <div class="pin-link">
-            <input type="text" readonly id="pinLink">
-            <button class="btn btn-secondary" onclick="CafePin.copyLink()">Copy link</button>
-          </div>
-        </div>
+        <h3 id="emptyStateTitle">Your Stash Vault is empty</h3>
+        <p>Click below to upload your first document.</p>
+        <button class="btn btn-primary" type="button" id="emptyUploadBtn">Upload a document</button>
       </div>
     </section>
 
     <!-- ---- PROFILE ---- -->
-    <section class="view" id="view-profile">
+    <section class="view" id="view-profile" hidden>
       <div class="view-head">
         <h1>Profile</h1>
         <p class="view-sub">Your details, used to tag documents automatically.</p>
       </div>
-      <div class="card profile-card">
-        <div class="avatar avatar-lg" id="profileAvatar">A</div>
-        <div class="profile-form">
-          <label class="field"><span>Full name</span><input type="text" id="pName" value="Adaeze Okafor"></label>
+
+      <div class="panel profile-panel">
+        <div class="avatar-upload">
+          <div class="avatar avatar-lg" id="profileAvatar">S</div>
+          <label class="btn btn-secondary btn-sm">
+            Change photo
+            <input type="file" id="avatarInput" accept="image/*" hidden>
+          </label>
+        </div>
+
+        <form class="profile-form" id="profileForm" novalidate>
+          <label class="field"><span>Full name</span><input type="text" id="pName"></label>
           <div class="field-row">
-            <label class="field"><span>Level</span>
-              <select id="pLevel"><option selected>300L</option><option>100L</option><option>200L</option><option>400L</option><option>500L</option></select>
-            </label>
-            <label class="field"><span>Faculty</span><input type="text" id="pFaculty" value="Management Sciences"></label>
+            <label class="field"><span>Matric number</span><input type="text" id="pMatric"></label>
+            <label class="field"><span>Level</span><select id="pLevel"></select></label>
           </div>
-          <label class="field"><span>Email</span><input type="email" id="pEmail" value="adaeze.okafor@school.edu"></label>
-          <button class="btn btn-primary" onclick="Profile.save()">Save changes</button>
-        </div>
-      </div>
-    </section>
-
-    <!-- ---- SETTINGS ---- -->
-    <section class="view" id="view-settings">
-      <div class="view-head">
-        <h1>Settings</h1>
-        <p class="view-sub">Tune how Dockit looks and behaves.</p>
-      </div>
-
-      <div class="card settings-row">
-        <div><h3>Appearance</h3><p class="muted">Switch between night and daylight mode.</p></div>
-        <div class="segmented">
-          <button class="seg-btn" data-theme="dark" onclick="UI.setTheme('dark')">Night</button>
-          <button class="seg-btn" data-theme="light" onclick="UI.setTheme('light')">Daylight</button>
-        </div>
-      </div>
-
-      <div class="card settings-row">
-        <div><h3>Offline access</h3><p class="muted">Cache your files so they open even when campus network drops.</p></div>
-        <label class="switch"><input type="checkbox" id="offlineToggle" checked><span class="slider"></span></label>
-      </div>
-
-      <div class="card settings-row">
-        <div><h3>Auto-fill from OCR</h3><p class="muted">Pre-fill RRR, amount and date when scanning receipts.</p></div>
-        <label class="switch"><input type="checkbox" id="ocrToggle" checked><span class="slider"></span></label>
-      </div>
-
-      <div class="card settings-row danger-row">
-        <div><h3>Clear local vault</h3><p class="muted">Remove all documents stored in this browser session.</p></div>
-        <button class="btn btn-danger" onclick="Store.clearAll()">Clear everything</button>
-      </div>
-    </section>
-
-    <!-- ---- HELP & SUPPORT ---- -->
-    <section class="view" id="view-help">
-      <div class="view-head">
-        <h1>Help &amp; Support</h1>
-        <p class="view-sub">Answers to what students ask us most.</p>
-      </div>
-
-      <div class="card">
-        <div class="faq-item">
-          <button class="faq-q" onclick="UI.toggleFaq(this)">Does Dockit read every Remita receipt correctly? <i data-ic="chevron"></i></button>
-          <div class="faq-a">Scanning works best on clear, well-lit photos. You can always edit the RRR, amount or date before saving if the scan gets something wrong.</div>
-        </div>
-        <div class="faq-item">
-          <button class="faq-q" onclick="UI.toggleFaq(this)">Can someone else open my files with a cafe PIN? <i data-ic="chevron"></i></button>
-          <div class="faq-a">Only the one document you choose is exposed, only for the time you set, and the PIN stops working after first use or when it expires.</div>
-        </div>
-        <div class="faq-item">
-          <button class="faq-q" onclick="UI.toggleFaq(this)">What happens if I lose network on campus? <i data-ic="chevron"></i></button>
-          <div class="faq-a">With offline access on, previously opened files and your saved metadata stay available, and anything you add will sync once you're back online.</div>
-        </div>
-        <div class="faq-item">
-          <button class="faq-q" onclick="UI.toggleFaq(this)">How is my data stored? <i data-ic="chevron"></i></button>
-          <div class="faq-a">Files are scanned and processed on your own device before upload, then kept in your private storage bucket tied to your student account.</div>
-        </div>
-      </div>
-
-      <div class="card">
-        <h3>Still stuck?</h3>
-        <form class="ocr-form" onsubmit="Support.send(event)">
-          <label class="field"><span>What's going on?</span><textarea id="supportMsg" rows="4" placeholder="Tell us what happened…" required></textarea></label>
-          <button class="btn btn-primary">Send to support</button>
+          <label class="field"><span>Department</span><input type="text" id="pDepartment" placeholder="e.g. Accounting"></label>
+          <label class="field"><span>Email</span><input type="email" id="pEmail"></label>
+          <button type="submit" class="btn btn-primary">Save changes</button>
         </form>
+      </div>
+
+      <div class="section-divider"></div>
+
+      <div class="panel storage-detail">
+        <div class="section-head">
+          <h3>Vault storage</h3>
+          <span class="muted" id="storageDetailText">0% used</span>
+        </div>
+        <div class="storage-bar"><div class="storage-bar-fill" id="profileStorageFill"></div></div>
       </div>
     </section>
 
   </main>
 </div>
 
-<div class="toast" id="toast"></div>
+<!-- ============ CAFE PRINT PORTAL (#cafe-print, public) ============ -->
+<div id="cafeShell" class="cafe-shell hidden">
+  <div class="cafe-card">
+    <div class="brand">
+      <svg width="30" height="30" viewBox="0 0 34 34" fill="none"><rect width="34" height="34" rx="9" fill="var(--accent)"/><path d="M9 11h16M9 17h16M9 23h10" stroke="var(--bg)" stroke-width="2.4" stroke-linecap="round"/></svg>
+      <span>Stash Cafe Print</span>
+    </div>
+    <p class="auth-sub">Enter the 4-digit PIN given by the student to open their print-ready file. No login needed — the PIN expires automatically.</p>
 
-<script>
-  // ---- Auth-screen view router: shows one of #view-login / #view-signup / #view-forgot
-  // based on the URL hash (#login, #signup, #forgot). Falls back to login.
-  // Only touches the three auth views; the app shell's own view switcher (in app.js)
-  // is untouched and keyed off data-view buttons instead.
-  (function () {
-    const AUTH_VIEWS = {
-      login: document.getElementById('view-login'),
-      signup: document.getElementById('view-signup'),
-      forgot: document.getElementById('view-forgot'),
-    };
-    const AUTH_TITLES = {
-      login: 'Welcome back',
-      signup: 'Set up your vault',
-      forgot: 'Reset your password',
-    };
-    const navLinks = document.querySelectorAll('[data-view-link]');
+    <form id="cafePinForm" novalidate>
+      <label class="field"><span>4-digit PIN</span><input type="text" id="cafePinInput" inputmode="numeric" maxlength="4" placeholder="0000" required></label>
+      <button type="submit" class="btn btn-primary btn-block">Open document</button>
+    </form>
+    <span class="field-error hidden" id="cafePinError">That PIN is invalid or has expired.</span>
 
-    function showAuthView(name) {
-      if (!AUTH_VIEWS[name]) name = 'login';
+    <div class="cafe-result hidden" id="cafeResult">
+      <div class="cafe-doc-preview" id="cafeDocPreview"></div>
+      <button class="btn btn-primary btn-block" id="cafePrintBtn" type="button">Print this document</button>
+    </div>
 
-      Object.entries(AUTH_VIEWS).forEach(([key, el]) => {
-        el.hidden = key !== name;
-      });
+    <a class="auth-switch" href="#login" style="display:block; margin-top:18px;">&larr; Back to login</a>
+  </div>
 
-      document.title = AUTH_TITLES[name] + ' · Dockit';
+  <!-- Printable area (only this shows up via @media print) -->
+  <div id="printArea" class="print-area"></div>
+</div>
 
-      navLinks.forEach(link => {
-        link.classList.toggle('current', link.dataset.viewLink === name);
-      });
-
-      // Reset the "email sent" confirmation whenever we leave/re-enter the forgot view
-      if (name !== 'forgot') {
-        const confirmation = document.getElementById('resetConfirmation');
-        if (confirmation) confirmation.hidden = true;
-      }
-    }
-
-    function authViewFromHash() {
-      return (window.location.hash || '#login').replace('#', '');
-    }
-
-    window.addEventListener('hashchange', () => {
-      if (AUTH_VIEWS[authViewFromHash()] || authViewFromHash() === 'login') {
-        showAuthView(authViewFromHash());
-      }
-    });
-
-    showAuthView(authViewFromHash());
-  })();
-</script>
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="app.js"></script>
 </body>
