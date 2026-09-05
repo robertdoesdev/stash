@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Stash — Dashboard</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <div class="dashboard">
+
+    <!-- ===== Sidebar ===== -->
+    <aside class="sidebar">
+
+      <div class="brand">
+        <svg viewBox="0 0 24 24" width="24" height="24" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="heartGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#ff5b5b" />
+              <stop offset="50%" stop-color="#ff5aa8" />
+              <stop offset="100%" stop-color="#7b5bff" />
+            </linearGradient>
+          </defs>
+          <path fill="url(#heartGradient)" d="M12 21s-7.5-4.7-10.2-9.2C.3 9.2 1 5.6 4 4.1c2.2-1.1 4.6-.4 6 1.4C11.4 3.7 13.8 3 16 4.1c3 1.5 3.7 5.1 2.2 7.7C20.5 16.3 12 21 12 21z"/>
+        </svg>
+        <span>Stash</span>
+      </div>
+
+      <div class="sidebar-search">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="7" cy="7" r="5.2" stroke="#5a5a5a" stroke-width="1.4"/>
+          <path d="M11 11L14.5 14.5" stroke="#5a5a5a" stroke-width="1.4" stroke-linecap="round"/>
+        </svg>
+        <input type="text" placeholder="Search..." />
+      </div>
+
+      <nav class="sidebar-nav">
+        <a href="#" class="nav-item active">
+          <span class="nav-icon" aria-hidden="true">&#9679;</span>
+          <span>Home</span>
+          <span class="nav-badge">10</span>
+        </a>
+        <a href="#" class="nav-item">
+          <span class="nav-icon" aria-hidden="true">&#9776;</span>
+          <span>Activity</span>
+        </a>
+        <a href="#" class="nav-item">
+          <span class="nav-icon" aria-hidden="true">&#9787;</span>
+          <span>Shared / Links</span>
+          <span class="nav-badge">2</span>
+        </a>
+        <a href="#" class="nav-item">
+          <span class="nav-icon" aria-hidden="true">&#9634;</span>
+          <span>Subscription</span>
+        </a>
+        <a href="#" class="nav-item">
+          <span class="nav-icon" aria-hidden="true">&#9881;</span>
+          <span>Settings</span>
+        </a>
+        <a href="#" class="nav-item">
+          <span class="nav-icon" aria-hidden="true">&#63;</span>
+          <span>Help &amp; Support</span>
+        </a>
+      </nav>
+
+      <div class="upgrade-card">
+        <button class="upgrade-dismiss" aria-label="Dismiss">&times;</button>
+        <p class="upgrade-title">Space Almost Expired</p>
+        <p class="upgrade-copy">You're running out of space. Please upgrade or go pro today.</p>
+        <div class="upgrade-progress"><span style="width: 70%;"></span></div>
+        <div class="upgrade-actions">
+          <a href="#" class="upgrade-dismiss-link">Dismiss</a>
+          <a href="#" class="upgrade-pro-link">Go Pro</a>
+        </div>
+      </div>
+
+      <div class="sidebar-profile">
+        <img src="https://i.pravatar.cc/64?img=12" alt="" class="profile-avatar" />
+        <div class="profile-info">
+          <p class="profile-name">Azunyan O. Wu</p>
+          <p class="profile-role">Basic Member</p>
+        </div>
+        <button class="profile-expand" aria-label="Account menu">&rsaquo;</button>
+      </div>
+
+    </aside>
+
+    <!-- ===== Main content ===== -->
+    <main class="main-content">
+
+      <div class="browser-bar">
+        <span class="browser-dot" aria-hidden="true">&#9673;</span>
+        <div class="browser-url"><span>&#128274;</span> cloudly.com</div>
+        <span class="browser-refresh" aria-hidden="true">&#8635;</span>
+      </div>
+
+      <header class="topbar">
+        <h1>My Stash</h1>
+        <div class="topbar-actions">
+          <button class="btn btn-primary btn-export">
+            <span aria-hidden="true">&#8635;</span> Export Data
+          </button>
+          <img src="https://i.pravatar.cc/64?img=12" alt="" class="topbar-avatar" />
+        </div>
+      </header>
+
+      <div class="view-tabs">
+        <button class="view-tab" type="button">&#9776; List View</button>
+        <button class="view-tab" type="button">&#9636; Column View</button>
+        <button class="view-tab" type="button">&#9638; Card View</button>
+        <button class="view-tab active" type="button">&#9776; Normal View</button>
+      </div>
+
+      <section class="folders-section">
+        <div class="section-heading">
+          <h2>Folders</h2>
+          <a href="#" class="see-all">See All</a>
+        </div>
+        <div class="folders-grid">
+          <div class="folder-card">
+            <span class="folder-icon">&#128193;</span>
+            <p class="folder-name">Files</p>
+            <p class="folder-meta">118 files &middot; 2.8 gb</p>
+          </div>
+          <div class="folder-card">
+            <span class="folder-icon">&#127909;</span>
+            <p class="folder-name">Videos</p>
+            <p class="folder-meta">16 files &middot; 128.1 tb</p>
+          </div>
+          <div class="folder-card">
+            <span class="folder-icon">&#127925;</span>
+            <p class="folder-name">Audio</p>
+            <p class="folder-meta">1,228 files &middot; 155 mb</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="upload-dropzone">
+        <span class="dropzone-icon">&#128196;</span>
+        <p class="dropzone-text"><a href="#">Click here</a> to upload your file or drag.</p>
+        <p class="dropzone-hint">Supported Format: SVG, JPG, PNG (10mb each)</p>
+        <span class="dropzone-hand" aria-hidden="true">&#128070;</span>
+      </section>
+
+      <section class="files-section">
+        <div class="files-header">
+          <h2>Stashed Files <span class="files-count">81 Total</span></h2>
+          <div class="files-actions">
+            <button class="icon-btn" aria-label="Search files">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="7" cy="7" r="5.2" stroke="#9a9a9a" stroke-width="1.4"/>
+                <path d="M11 11L14.5 14.5" stroke="#9a9a9a" stroke-width="1.4" stroke-linecap="round"/>
+              </svg>
+            </button>
+            <button class="btn btn-primary btn-filter">&#9776; Filter</button>
+          </div>
+        </div>
+
+        <table class="files-table">
+          <thead>
+            <tr>
+              <th class="col-check"><input type="checkbox" /></th>
+              <th>File Name &#8645;</th>
+              <th>Last Modified &#8645;</th>
+              <th>User Permission &#8645;</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="col-check"><input type="checkbox" checked /></td>
+              <td class="file-name-cell">
+                <span class="file-type-icon file-pdf">PDF</span>
+                <div>
+                  <p class="file-name">Berserk Vol 32.pdf</p>
+                  <p class="file-size">25 MB</p>
+                </div>
+              </td>
+              <td>2025/18/16</td>
+              <td>
+                <div class="avatar-stack">
+                  <img src="https://i.pravatar.cc/32?img=5" alt="" />
+                  <img src="https://i.pravatar.cc/32?img=8" alt="" />
+                  <img src="https://i.pravatar.cc/32?img=15" alt="" />
+                  <span class="avatar-more">+3</span>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td class="col-check"><input type="checkbox" /></td>
+              <td class="file-name-cell">
+                <span class="file-type-icon file-doc">DOC</span>
+                <div>
+                  <p class="file-name">Invoice Dec 23.doc</p>
+                  <p class="file-size">44 GB</p>
+                </div>
+              </td>
+              <td>2025/18/16</td>
+              <td>
+                <div class="avatar-stack">
+                  <img src="https://i.pravatar.cc/32?img=21" alt="" />
+                  <img src="https://i.pravatar.cc/32?img=25" alt="" />
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td class="col-check"><input type="checkbox" checked /></td>
+              <td class="file-name-cell">
+                <span class="file-type-icon file-img">JPG</span>
+                <div>
+                  <p class="file-name">Screenshot 22.jpg</p>
+                  <p class="file-size">798 TB</p>
+                </div>
+              </td>
+              <td>2025/18/16</td>
+              <td>
+                <div class="avatar-stack">
+                  <img src="https://i.pravatar.cc/32?img=32" alt="" />
+                  <img src="https://i.pravatar.cc/32?img=36" alt="" />
+                  <span class="avatar-more">+3</span>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td class="col-check"><input type="checkbox" /></td>
+              <td class="file-name-cell">
+                <span class="file-type-icon file-code">TSX</span>
+                <div>
+                  <p class="file-name">React Component.tsx</p>
+                  <p class="file-size">4 KB</p>
+                </div>
+              </td>
+              <td>2025/18/16</td>
+              <td>
+                <div class="avatar-stack">
+                  <img src="https://i.pravatar.cc/32?img=41" alt="" />
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+    </main>
+
+    <!-- ===== Right details panel ===== -->
+    <aside class="details-panel">
+
+      <div class="storage-card">
+        <div class="storage-card-header">
+          <h2>My Storage</h2>
+          <button class="icon-btn" aria-label="More options">&#8942;</button>
+        </div>
+
+        <div class="storage-donut">
+          <svg viewBox="0 0 120 120" width="150" height="150">
+            <circle cx="60" cy="60" r="50" fill="none" stroke="#1c1c1c" stroke-width="14" />
+            <circle cx="60" cy="60" r="50" fill="none" stroke="url(#donutGradient)" stroke-width="14"
+              stroke-dasharray="314" stroke-dashoffset="55" stroke-linecap="round"
+              transform="rotate(-90 60 60)" />
+            <defs>
+              <linearGradient id="donutGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#7b5bff" />
+                <stop offset="100%" stop-color="#6d8cff" />
+              </linearGradient>
+            </defs>
+          </svg>
+          <div class="storage-donut-label">
+            <p class="storage-amount">85.1gb</p>
+            <p class="storage-caption">Total Storage</p>
+          </div>
+        </div>
+
+        <ul class="storage-legend">
+          <li><span class="legend-dot dot-1"></span>All LLMs <span>99.2 gb</span></li>
+          <li><span class="legend-dot dot-2"></span>Other <span>8.2 gb</span></li>
+          <li><span class="legend-dot dot-3"></span>Image <span>12 mb</span></li>
+          <li><span class="legend-dot dot-4"></span>Videos <span>113.8 gb</span></li>
+          <li><span class="legend-dot dot-5"></span>Audios <span>448.1 tb</span></li>
+        </ul>
+      </div>
+
+      <div class="activity-card">
+        <div class="activity-header">
+          <h2>Recent Activity</h2>
+          <button class="icon-btn" aria-label="More options">&#8942;</button>
+        </div>
+
+        <ul class="activity-list">
+          <li>
+            <span class="activity-icon icon-upload">&#8593;</span>
+            <div>
+              <p class="activity-title">Uploaded 25 Files</p>
+              <p class="activity-date">Jun 25, 2025</p>
+            </div>
+          </li>
+          <li>
+            <span class="activity-icon icon-delete">&#128465;</span>
+            <div>
+              <p class="activity-title">Deleted 2 Files</p>
+              <p class="activity-date">Jun 25, 2025</p>
+            </div>
+          </li>
+          <li>
+            <span class="activity-icon icon-share">&#8599;</span>
+            <div>
+              <p class="activity-title">Shared 3 Files</p>
+              <p class="activity-date">Jun 25, 2025</p>
+            </div>
+          </li>
+          <li>
+            <span class="activity-icon icon-upload">&#8593;</span>
+            <div>
+              <p class="activity-title">Uploaded 8 Files</p>
+              <p class="activity-date">Jun 25, 2025</p>
+            </div>
+          </li>
+          <li>
+            <span class="activity-icon icon-upload">&#8593;</span>
+            <div>
+              <p class="activity-title">Uploaded 2 Files</p>
+              <p class="activity-date">Jun 25, 2025</p>
+            </div>
+          </li>
+        </ul>
+      </div>
+
+    </aside>
+
+  </div>
+
+</body>
+</html>
