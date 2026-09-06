@@ -21,7 +21,10 @@
     "course": "",
     "rrr": "",
     "amount": 0,
-    "date": ""
+    "date": "",
+    "fileData": null,
+    "fileType": "",
+    "ocrText": ""
   },
   "profileSchema": {
     "name": "",
@@ -38,5 +41,60 @@
     "department": "",
     "level": "100L",
     "avatar": null
-  }
+  },
+  "defaultSettings": {
+    "theme": "dark",
+    "offlineAccess": true,
+    "ocrAutofill": true
+  },
+  "pricingPlans": [
+    {
+      "id": "free",
+      "name": "Free",
+      "price": "\u20a60",
+      "period": "/forever",
+      "storage": "2 GB storage",
+      "features": ["Unlimited receipts & dockets", "Clearance packet export", "1 cafe quick-print PIN/day"],
+      "cta": "Get started",
+      "highlighted": false
+    },
+    {
+      "id": "pro",
+      "name": "Pro",
+      "price": "\u20a61,500",
+      "period": "/semester",
+      "storage": "20 GB storage",
+      "features": ["Everything in Free", "Unlimited cafe quick-print PINs", "OCR auto-fill on every scan", "Priority support"],
+      "cta": "Go Pro",
+      "highlighted": true
+    },
+    {
+      "id": "campus",
+      "name": "Campus",
+      "price": "Contact us",
+      "period": "",
+      "storage": "Custom storage per student",
+      "features": ["Everything in Pro", "Bulk clearance exports for departments", "Admin dashboard for bursary staff"],
+      "cta": "Talk to us",
+      "highlighted": false
+    }
+  ],
+  "faqs": [
+    {
+      "q": "Does Stash read every Remita receipt correctly?",
+      "a": "Scanning works best on clear, well-lit photos. You can always edit the RRR, amount or date before saving if the scan gets something wrong."
+    },
+    {
+      "q": "Can someone else open my files with a cafe PIN?",
+      "a": "Only the one document you choose is exposed, only for the time you set, and the PIN stops working after first use or when it expires."
+    },
+    {
+      "q": "What happens if I lose network on campus?",
+      "a": "With offline access on, previously opened files and your saved metadata stay available, and anything you add will sync once you're back online."
+    },
+    {
+      "q": "How is my data stored?",
+      "a": "Files are scanned and processed on your own device before upload, then kept in your private storage bucket tied to your student account."
+    }
+  ]
 }

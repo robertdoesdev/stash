@@ -14,125 +14,189 @@
 
 <div class="toast" id="toast"></div>
 
-<!-- ============ AUTH SHELL (#login, #signup) ============ -->
-<div id="authShell" class="auth-shell">
-  <div class="auth-glow"></div>
-
-  <div class="auth-card">
-    <div class="brand">
-      <svg width="34" height="34" viewBox="0 0 34 34" fill="none"><rect width="34" height="34" rx="9" fill="var(--accent)"/><path d="M9 11h16M9 17h16M9 23h10" stroke="var(--bg)" stroke-width="2.4" stroke-linecap="round"/></svg>
+<!-- ============ MARKETING SHELL (#landing, #pricing) ============ -->
+<div id="marketingShell" class="marketing-shell hidden">
+  <header class="marketing-nav">
+    <a class="brand" href="#landing">
+      <svg width="28" height="28" viewBox="0 0 34 34" fill="none"><rect width="34" height="34" rx="9" fill="var(--accent)"/><path d="M9 11h16M9 17h16M9 23h10" stroke="var(--bg)" stroke-width="2.4" stroke-linecap="round"/></svg>
       <span>Stash</span>
+    </a>
+    <nav class="marketing-links">
+      <a href="#landing">Home</a>
+      <a href="#pricing">Pricing</a>
+    </nav>
+    <div class="marketing-actions">
+      <a class="btn btn-ghost btn-sm" href="#login">Log in</a>
+      <a class="btn btn-primary btn-sm" href="#signup">Get started</a>
+    </div>
+  </header>
+
+  <!-- ---- LANDING ---- -->
+  <section class="view" id="view-landing">
+    <div class="hero">
+      <span class="hero-tag">Built for Nigerian campuses</span>
+      <h1>Every receipt, docket, and admin file — in one stash.</h1>
+      <p class="hero-sub">Scan your Remita slips, tag them by level and semester, and compile a clean clearance PDF in seconds. No more digging through screenshots at 11pm before submission.</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary btn-lg" href="#signup">Create your vault</a>
+        <a class="btn btn-secondary btn-lg" href="#pricing">See pricing</a>
+      </div>
     </div>
 
-    <!-- ===== LOGIN VIEW ===== -->
-    <section class="view" id="view-login">
-      <h1>Welcome back</h1>
-      <p class="auth-sub">Sign in to reach your receipts, dockets, and admin files.</p>
+    <div class="feature-grid">
+      <div class="feature-card">
+        <div class="feature-icon"><i data-ic="upload"></i></div>
+        <h3>Scan &amp; auto-tag</h3>
+        <p>Snap a photo of any receipt or docket — Stash reads the RRR, amount and date for you.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon"><i data-ic="stack"></i></div>
+        <h3>One-tap clearance</h3>
+        <p>Pick a semester's receipts and compile them into a single PDF ready for submission.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon"><i data-ic="pin"></i></div>
+        <h3>Cafe quick-print</h3>
+        <p>Generate a short-lived PIN so any cyber cafe can print one file — no login needed.</p>
+      </div>
+    </div>
+  </section>
 
-      <button type="button" class="btn btn-social" id="googleLoginBtn">
-        <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
-          <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62z"/>
-          <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.94v2.33A9 9 0 0 0 9 18z"/>
-          <path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.67 9c0-.59.1-1.16.28-1.7V4.97H.94A9 9 0 0 0 0 9c0 1.45.35 2.83.94 4.03l3.01-2.33z"/>
-          <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .94 4.97l3.01 2.33C4.66 5.17 6.65 3.58 9 3.58z"/>
-        </svg>
-        <span>Sign in with Google</span>
-      </button>
+  <!-- ---- PRICING ---- -->
+  <section class="view" id="view-pricing" hidden>
+    <div class="pricing-head">
+      <h1>Simple pricing for busy semesters</h1>
+      <p class="hero-sub">Start free. Upgrade only if you need more room or unlimited cafe PINs.</p>
+    </div>
+    <div class="pricing-grid" id="pricingGrid"></div>
 
-      <div class="divider"><span>OR</span></div>
+    <div class="section-divider"></div>
 
-      <form id="loginForm" novalidate>
-        <label class="field">
-          <span>Matric number or email</span>
-          <input type="text" id="loginId" placeholder="e.g. 20/1234 or you@school.edu" required>
-        </label>
+    <div class="faq-section" id="landingFaqs">
+      <h2>Questions students ask</h2>
+      <div id="landingFaqList"></div>
+    </div>
+  </section>
 
-        <div class="password-row">
-          <label class="field-label" for="loginPassword">Password</label>
-          <button type="button" class="forgot-link" id="openForgotModal">Forgot password?</button>
-        </div>
-        <div class="password-field">
-          <input type="password" id="loginPassword" placeholder="••••••••" required>
-          <button type="button" class="pw-toggle" data-target="loginPassword" aria-label="Show password">
-            <i data-ic="eye"></i>
-          </button>
-        </div>
-        <span class="field-error hidden" id="loginError">That matric number/email and password don't match.</span>
+  <footer class="marketing-footer">
+    <span>&copy; 2026 Stash. Made for students, by students.</span>
+  </footer>
+</div>
 
-        <label class="remember-row">
-          <input type="checkbox" id="rememberMe" checked>
-          <span>Remember me on this device</span>
-        </label>
+<!-- ============ AUTH SHELL (#login, #signup) — split layout ============ -->
+<div id="authShell" class="auth-shell hidden">
+  <section class="auth-panel">
+    <div class="auth-panel-inner">
+      <a class="brand" href="#landing">
+        <svg width="34" height="34" viewBox="0 0 34 34" fill="none"><rect width="34" height="34" rx="9" fill="var(--accent)"/><path d="M9 11h16M9 17h16M9 23h10" stroke="var(--bg)" stroke-width="2.4" stroke-linecap="round"/></svg>
+        <span>Stash</span>
+      </a>
 
-        <button type="submit" class="btn btn-primary btn-block">Log in</button>
-      </form>
+      <!-- ===== LOGIN VIEW ===== -->
+      <div class="view" id="view-login">
+        <h1>Welcome back</h1>
+        <p class="auth-sub">Sign in to reach your receipts, dockets, and admin files.</p>
 
-      <p class="auth-switch">New here? <a href="#signup">Create an account</a></p>
-      <a href="#cafe-print" class="cafe-link">Need to print at a cafe? <span>Open Cafe Print &rarr;</span></a>
-    </section>
+        <button type="button" class="btn btn-social" id="googleLoginBtn">
+          <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+            <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62z"/>
+            <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.94v2.33A9 9 0 0 0 9 18z"/>
+            <path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.67 9c0-.59.1-1.16.28-1.7V4.97H.94A9 9 0 0 0 0 9c0 1.45.35 2.83.94 4.03l3.01-2.33z"/>
+            <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .94 4.97l3.01 2.33C4.66 5.17 6.65 3.58 9 3.58z"/>
+          </svg>
+          <span>Sign in with Google</span>
+        </button>
 
-    <!-- ===== SIGNUP VIEW ===== -->
-    <section class="view" id="view-signup" hidden>
-      <h1>Set up your stash</h1>
-      <p class="auth-sub">A few details so we can tag your documents correctly.</p>
+        <div class="divider"><span>OR</span></div>
 
-      <button type="button" class="btn btn-social" id="googleSignupBtn">
-        <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
-          <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62z"/>
-          <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.94v2.33A9 9 0 0 0 9 18z"/>
-          <path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.67 9c0-.59.1-1.16.28-1.7V4.97H.94A9 9 0 0 0 0 9c0 1.45.35 2.83.94 4.03l3.01-2.33z"/>
-          <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .94 4.97l3.01 2.33C4.66 5.17 6.65 3.58 9 3.58z"/>
-        </svg>
-        <span>Sign up with Google</span>
-      </button>
+        <form id="loginForm" novalidate>
+          <label class="field">
+            <span>Matric number or email</span>
+            <input type="text" id="loginId" placeholder="e.g. 20/1234 or you@school.edu" required>
+          </label>
 
-      <div class="divider"><span>OR</span></div>
-
-      <form id="signupForm" novalidate>
-        <label class="field">
-          <span>Full name</span>
-          <input type="text" id="suName" placeholder="Adaeze Okafor" required>
-        </label>
-        <label class="field">
-          <span>Matric number</span>
-          <input type="text" id="suMatric" placeholder="e.g. 20/1234" required>
-        </label>
-        <label class="field">
-          <span>Level</span>
-          <select id="suLevel"></select>
-        </label>
-        <label class="field">
-          <span>Email</span>
-          <input type="email" id="suEmail" placeholder="you@school.edu" required>
-        </label>
-
-        <label class="field">
-          <span>Password</span>
-          <div class="password-field">
-            <input type="password" id="suPassword" placeholder="Create a password" required minlength="6">
-            <button type="button" class="pw-toggle" data-target="suPassword" aria-label="Show password">
-              <i data-ic="eye"></i>
-            </button>
+          <div class="password-row">
+            <label class="field-label" for="loginPassword">Password</label>
+            <button type="button" class="forgot-link" id="openForgotModal">Forgot password?</button>
           </div>
-        </label>
-
-        <label class="field">
-          <span>Confirm password</span>
           <div class="password-field">
-            <input type="password" id="suConfirmPassword" placeholder="Re-enter your password" required minlength="6">
-            <button type="button" class="pw-toggle" data-target="suConfirmPassword" aria-label="Show password">
-              <i data-ic="eye"></i>
-            </button>
+            <input type="password" id="loginPassword" placeholder="••••••••" required>
+            <button type="button" class="pw-toggle" data-target="loginPassword" aria-label="Show password"><i data-ic="eye"></i></button>
           </div>
-        </label>
-        <span class="field-error hidden" id="signupError">Passwords don't match.</span>
+          <span class="field-error hidden" id="loginError">That matric number/email and password don't match.</span>
 
-        <button type="submit" class="btn btn-primary btn-block">Create account</button>
-      </form>
+          <label class="remember-row">
+            <input type="checkbox" id="rememberMe" checked>
+            <span>Remember me on this device</span>
+          </label>
 
-      <p class="auth-switch">Already registered? <a href="#login">Log in</a></p>
-    </section>
-  </div>
+          <button type="submit" class="btn btn-primary btn-block">Log in</button>
+        </form>
+
+        <p class="auth-switch">New here? <a href="#signup">Create an account</a></p>
+        <a href="#print-portal" class="cafe-link">Need to print at a cafe? <span>Open Cafe Print &rarr;</span></a>
+      </div>
+
+      <!-- ===== SIGNUP VIEW ===== -->
+      <div class="view" id="view-signup" hidden>
+        <h1>Set up your stash</h1>
+        <p class="auth-sub">A few details so we can tag your documents correctly.</p>
+
+        <button type="button" class="btn btn-social" id="googleSignupBtn">
+          <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+            <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62z"/>
+            <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.94v2.33A9 9 0 0 0 9 18z"/>
+            <path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.67 9c0-.59.1-1.16.28-1.7V4.97H.94A9 9 0 0 0 0 9c0 1.45.35 2.83.94 4.03l3.01-2.33z"/>
+            <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .94 4.97l3.01 2.33C4.66 5.17 6.65 3.58 9 3.58z"/>
+          </svg>
+          <span>Sign up with Google</span>
+        </button>
+
+        <div class="divider"><span>OR</span></div>
+
+        <form id="signupForm" novalidate>
+          <label class="field"><span>Full name</span><input type="text" id="suName" placeholder="Adaeze Okafor" required></label>
+          <label class="field"><span>Matric number</span><input type="text" id="suMatric" placeholder="e.g. 20/1234" required></label>
+          <label class="field"><span>Level</span><select id="suLevel"></select></label>
+          <label class="field"><span>Email</span><input type="email" id="suEmail" placeholder="you@school.edu" required></label>
+
+          <label class="field">
+            <span>Password</span>
+            <div class="password-field">
+              <input type="password" id="suPassword" placeholder="Create a password" required minlength="6">
+              <button type="button" class="pw-toggle" data-target="suPassword" aria-label="Show password"><i data-ic="eye"></i></button>
+            </div>
+          </label>
+
+          <label class="field">
+            <span>Confirm password</span>
+            <div class="password-field">
+              <input type="password" id="suConfirmPassword" placeholder="Re-enter your password" required minlength="6">
+              <button type="button" class="pw-toggle" data-target="suConfirmPassword" aria-label="Show password"><i data-ic="eye"></i></button>
+            </div>
+          </label>
+          <span class="field-error hidden" id="signupError">Passwords don't match.</span>
+
+          <button type="submit" class="btn btn-primary btn-block">Create account</button>
+        </form>
+
+        <p class="auth-switch">Already registered? <a href="#login">Log in</a></p>
+      </div>
+    </div>
+  </section>
+
+  <aside class="auth-showcase">
+    <div class="showcase-card">
+      <div class="showcase-tag">Semester close-out</div>
+      <div class="showcase-title">Clearance packet ready in one tap</div>
+      <div class="showcase-body">
+        <div class="mini-doc"><span>ACC 102</span><small>Receipt · ₦8,500</small></div>
+        <div class="mini-doc"><span>AMS 104</span><small>Docket · Verified</small></div>
+        <div class="mini-doc"><span>Hostel fee</span><small>Receipt · ₦45,000</small></div>
+      </div>
+      <button class="showcase-btn" type="button">Compile 3 files → 1 PDF</button>
+    </div>
+  </aside>
 </div>
 
 <!-- ============ FORGOT PASSWORD MODAL ============ -->
@@ -141,20 +205,52 @@
     <button type="button" class="modal-close" id="closeForgotModal" aria-label="Close">&times;</button>
     <h2>Reset your password</h2>
     <p class="auth-sub">Enter the email or matric number tied to your account and we'll send a reset link.</p>
-
     <form id="forgotForm" novalidate>
-      <label class="field">
-        <span>Matric number or email</span>
-        <input type="text" id="forgotId" placeholder="e.g. 20/1234 or you@school.edu" required>
-      </label>
+      <label class="field"><span>Matric number or email</span><input type="text" id="forgotId" placeholder="e.g. 20/1234 or you@school.edu" required></label>
       <button type="submit" class="btn btn-primary btn-block">Send reset link</button>
     </form>
-
     <p class="auth-hint hidden" id="forgotConfirmation">Check your inbox for a link to reset your password.</p>
   </div>
 </div>
 
-<!-- ============ APP SHELL (#dashboard, #documents, #profile) ============ -->
+<!-- ============ DOCUMENT PREVIEW / EDIT MODAL ============ -->
+<div class="modal-overlay hidden" id="docModal">
+  <div class="modal modal-lg">
+    <button type="button" class="modal-close" id="closeDocModal" aria-label="Close">&times;</button>
+    <div class="doc-modal-grid">
+      <div class="doc-preview-pane" id="docPreviewPane"></div>
+      <form class="doc-edit-pane" id="docEditForm" novalidate>
+        <label class="field"><span>Document name</span><input type="text" id="editName" required></label>
+        <div class="field-row">
+          <label class="field"><span>RRR / Reference</span><input type="text" id="editRRR"></label>
+          <label class="field"><span>Amount (₦)</span><input type="text" id="editAmount"></label>
+        </div>
+        <div class="field-row">
+          <label class="field"><span>Date</span><input type="date" id="editDate"></label>
+          <label class="field"><span>Category</span><select id="editCategory"></select></label>
+        </div>
+        <div class="field-row">
+          <label class="field"><span>Level</span><select id="editLevel"></select></label>
+          <label class="field"><span>Semester</span><select id="editSemester"></select></label>
+        </div>
+        <label class="field"><span>Course code (optional)</span><input type="text" id="editCourse"></label>
+
+        <div class="ocr-text-box hidden" id="ocrTextBox">
+          <span class="field-label">Text detected on scan</span>
+          <p id="ocrTextContent"></p>
+        </div>
+
+        <div class="drop-actions">
+          <button type="button" class="btn btn-danger" id="deleteDocBtn">Delete</button>
+          <button type="button" class="btn btn-secondary" id="printDocBtn"><i data-ic="stack"></i>Print</button>
+          <button type="submit" class="btn btn-primary">Save changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ============ APP SHELL (all 8 tabs) ============ -->
 <div id="appShell" class="app-shell hidden">
 
   <aside class="sidebar" id="sidebar">
@@ -165,15 +261,17 @@
     <nav class="nav">
       <a class="nav-item" href="#dashboard" data-route="dashboard"><i data-ic="home"></i>Dashboard</a>
       <a class="nav-item" href="#documents" data-route="documents"><i data-ic="folder"></i>My Documents</a>
+      <a class="nav-item" href="#upload" data-route="upload"><i data-ic="upload"></i>Scan &amp; Upload</a>
+      <a class="nav-item" href="#clearance" data-route="clearance"><i data-ic="stack"></i>Clearance Export</a>
+      <a class="nav-item" href="#cafepin" data-route="cafepin"><i data-ic="pin"></i>Cafe Quick-Print</a>
       <a class="nav-item" href="#profile" data-route="profile"><i data-ic="user"></i>Profile</a>
-      <a class="nav-item" href="#cafe-print" data-route="cafe-print"><i data-ic="pin"></i>Cafe Quick-Print</a>
+      <a class="nav-item" href="#settings" data-route="settings"><i data-ic="gear"></i>Settings</a>
+      <a class="nav-item" href="#help" data-route="help"><i data-ic="help"></i>Help &amp; Support</a>
     </nav>
-
     <div class="storage-mini">
       <div class="storage-bar"><div class="storage-bar-fill" id="sidebarStorageFill"></div></div>
       <span id="sidebarStorageText">0% of 2GB used</span>
     </div>
-
     <button class="btn btn-ghost btn-block" id="logoutBtn">Log out</button>
   </aside>
 
@@ -189,11 +287,11 @@
       <button class="icon-btn theme-toggle" id="themeToggleBtn" title="Toggle day/night">
         <i data-ic="sun" class="icon-sun"></i><i data-ic="moon" class="icon-moon"></i>
       </button>
-      <div class="avatar" id="topAvatar">S</div>
+      <button class="avatar avatar-btn" id="topAvatar" title="Go to profile">S</button>
     </header>
 
     <!-- ---- DASHBOARD ---- -->
-    <section class="view" id="view-dashboard">
+    <section class="view" id="view-dashboard" hidden>
       <div class="view-head">
         <h1 id="greeting">Good to see you</h1>
         <p class="view-sub">Here's what's sitting in your vault right now.</p>
@@ -210,16 +308,16 @@
         </div>
 
         <div class="panel stat-stack">
-          <a class="stat" href="#documents"><span class="stat-num" id="statTotal">0</span><span class="stat-label">Total documents</span></a>
-          <a class="stat" href="#documents"><span class="stat-num" id="statMonth">0</span><span class="stat-label">Added this month</span></a>
-          <a class="stat" href="#documents"><span class="stat-num" id="statFlagged">0</span><span class="stat-label">Selected for clearance</span></a>
+          <div class="stat"><span class="stat-num" id="statTotal">0</span><span class="stat-label">Total documents</span></div>
+          <div class="stat"><span class="stat-num" id="statMonth">0</span><span class="stat-label">Added this month</span></div>
+          <div class="stat"><span class="stat-num" id="statFlagged">0</span><span class="stat-label">Selected for clearance</span></div>
         </div>
 
         <div class="panel quick-actions">
           <h3>Quick actions</h3>
-          <a class="qa" href="#documents"><i data-ic="upload"></i>Scan or upload a file</a>
-          <a class="qa" href="#documents"><i data-ic="stack"></i>Build clearance packet</a>
-          <a class="qa" href="#cafe-print"><i data-ic="pin"></i>Cafe quick-print</a>
+          <a class="qa" href="#upload"><i data-ic="upload"></i>Scan or upload a file</a>
+          <a class="qa" href="#clearance"><i data-ic="stack"></i>Build clearance packet</a>
+          <a class="qa" href="#cafepin"><i data-ic="pin"></i>Cafe quick-print</a>
         </div>
       </div>
 
@@ -238,48 +336,13 @@
     <section class="view" id="view-documents" hidden>
       <div class="view-head">
         <h1>My Documents</h1>
-        <p class="view-sub">Upload new files, tag them, and pick a set for clearance.</p>
+        <p class="view-sub">Everything you've saved, tagged and searchable. Click a document to preview or edit it.</p>
       </div>
-
-      <div class="panel dropzone" id="dropzone">
-        <input type="file" id="fileInput" accept="image/*,.pdf" multiple hidden>
-        <i data-ic="upload" class="drop-icon"></i>
-        <h3>Drag a file here, or</h3>
-        <button class="btn btn-primary" type="button" id="chooseFileBtn">Choose file</button>
-        <span class="drop-hint">PDF, JPG or PNG · Remita slips, dockets, bank receipts</span>
-      </div>
-
-      <form class="panel meta-form hidden" id="metaForm" novalidate>
-        <h3>Add details</h3>
-        <label class="field"><span>Document name</span><input type="text" id="metaName" required></label>
-        <div class="field-row">
-          <label class="field"><span>RRR / Reference</span><input type="text" id="metaRRR" placeholder="Optional"></label>
-          <label class="field"><span>Amount (₦)</span><input type="text" id="metaAmount" placeholder="0"></label>
-        </div>
-        <div class="field-row">
-          <label class="field"><span>Date</span><input type="date" id="metaDate"></label>
-          <label class="field"><span>Category</span><select id="metaCategory"></select></label>
-        </div>
-        <div class="field-row">
-          <label class="field"><span>Level</span><select id="metaLevel"></select></label>
-          <label class="field"><span>Semester</span><select id="metaSemester"></select></label>
-        </div>
-        <label class="field"><span>Course code (optional)</span><input type="text" id="metaCourse" placeholder="e.g. ACC 102"></label>
-        <div class="drop-actions">
-          <button type="button" class="btn btn-ghost" id="cancelUploadBtn">Cancel</button>
-          <button type="submit" class="btn btn-primary">Save to vault</button>
-        </div>
-      </form>
-
-      <div class="section-divider"></div>
 
       <div class="filter-row">
         <select id="fLevel"><option value="">All levels</option></select>
         <select id="fSemester"><option value="">All semesters</option></select>
         <select id="fCategory"><option value="">All categories</option></select>
-        <button class="btn btn-primary btn-lg" id="compileBtn" type="button">
-          <i data-ic="stack"></i>Compile selected (<span id="ceCount">0</span>)
-        </button>
       </div>
 
       <div class="doc-list" id="docList"></div>
@@ -287,7 +350,73 @@
         <i data-ic="folder" class="empty-icon"></i>
         <h3 id="emptyStateTitle">Your Stash Vault is empty</h3>
         <p>Click below to upload your first document.</p>
-        <button class="btn btn-primary" type="button" id="emptyUploadBtn">Upload a document</button>
+        <a class="btn btn-primary" href="#upload">Upload a document</a>
+      </div>
+    </section>
+
+    <!-- ---- SCAN & UPLOAD ---- -->
+    <section class="view" id="view-upload" hidden>
+      <div class="view-head">
+        <h1>Scan &amp; Upload</h1>
+        <p class="view-sub">Drop one or more files — Stash reads the details for you where it can.</p>
+      </div>
+
+      <div class="panel dropzone" id="dropzone">
+        <input type="file" id="fileInput" accept="image/*,.pdf" multiple hidden>
+        <i data-ic="upload" class="drop-icon"></i>
+        <h3>Drag files here, or</h3>
+        <button class="btn btn-primary" type="button" id="chooseFileBtn">Choose files</button>
+        <span class="drop-hint">PDF, JPG or PNG · multiple files at once · Remita slips, dockets, bank receipts</span>
+      </div>
+
+      <div class="panel upload-queue hidden" id="uploadQueue">
+        <h3>Processing…</h3>
+        <div id="uploadQueueList"></div>
+      </div>
+    </section>
+
+    <!-- ---- CLEARANCE EXPORT ---- -->
+    <section class="view" id="view-clearance" hidden>
+      <div class="view-head">
+        <h1>Clearance Export</h1>
+        <p class="view-sub">Pick a semester's receipts and compile one clean PDF for submission.</p>
+      </div>
+
+      <div class="filter-row">
+        <select id="ceLevel"><option value="">All levels</option></select>
+        <select id="ceSemester"><option value="">All semesters</option></select>
+      </div>
+
+      <div class="panel">
+        <div class="section-head">
+          <h3>Select documents to include</h3>
+          <span id="ceCount" class="muted">0 selected</span>
+        </div>
+        <div class="check-list" id="clearanceList"></div>
+      </div>
+
+      <button class="btn btn-primary btn-lg" id="compileBtn" type="button" style="margin-top:16px;"><i data-ic="stack"></i>Compile packet</button>
+    </section>
+
+    <!-- ---- CAFE QUICK-PRINT (generate PIN, logged in) ---- -->
+    <section class="view" id="view-cafepin" hidden>
+      <div class="view-head">
+        <h1>Cafe Quick-Print PIN</h1>
+        <p class="view-sub">Let a cyber cafe open one printable file — no login, expires fast.</p>
+      </div>
+
+      <div class="panel cafe-card">
+        <label class="field"><span>Choose a document</span><select id="cafeDocSelect"></select></label>
+        <button class="btn btn-primary" type="button" id="generatePinBtn">Generate PIN</button>
+
+        <div class="pin-result hidden" id="pinResult">
+          <div class="pin-display" id="pinDisplay">— — — —</div>
+          <p class="muted">Valid for <span id="pinTimer">10:00</span> · single use</p>
+          <div class="pin-link">
+            <input type="text" readonly id="pinLink">
+            <button class="btn btn-secondary" type="button" id="copyPinLinkBtn">Copy link</button>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -330,11 +459,60 @@
       </div>
     </section>
 
+    <!-- ---- SETTINGS ---- -->
+    <section class="view" id="view-settings" hidden>
+      <div class="view-head">
+        <h1>Settings</h1>
+        <p class="view-sub">Tune how Stash looks and behaves.</p>
+      </div>
+
+      <div class="panel settings-row">
+        <div><h3>Appearance</h3><p class="muted">Switch between night and daylight mode.</p></div>
+        <div class="segmented">
+          <button class="seg-btn" type="button" data-theme="dark" id="segDark">Night</button>
+          <button class="seg-btn" type="button" data-theme="light" id="segLight">Daylight</button>
+        </div>
+      </div>
+
+      <div class="panel settings-row">
+        <div><h3>Offline access</h3><p class="muted">Cache your files so they open even when campus network drops.</p></div>
+        <label class="switch"><input type="checkbox" id="offlineToggle"><span class="slider"></span></label>
+      </div>
+
+      <div class="panel settings-row">
+        <div><h3>Auto-fill from OCR</h3><p class="muted">Pre-fill RRR, amount and date when scanning receipts.</p></div>
+        <label class="switch"><input type="checkbox" id="ocrToggle"><span class="slider"></span></label>
+      </div>
+
+      <div class="panel settings-row danger-row">
+        <div><h3>Clear local vault</h3><p class="muted">Remove all documents stored in this browser session.</p></div>
+        <button class="btn btn-danger" type="button" id="clearVaultBtn">Clear everything</button>
+      </div>
+    </section>
+
+    <!-- ---- HELP & SUPPORT ---- -->
+    <section class="view" id="view-help" hidden>
+      <div class="view-head">
+        <h1>Help &amp; Support</h1>
+        <p class="view-sub">Answers to what students ask us most.</p>
+      </div>
+
+      <div class="panel" id="appFaqList"></div>
+
+      <div class="panel" style="margin-top:16px;">
+        <h3 style="margin-bottom:14px;">Still stuck?</h3>
+        <form id="supportForm" novalidate>
+          <label class="field"><span>What's going on?</span><textarea id="supportMsg" rows="4" placeholder="Tell us what happened…" required></textarea></label>
+          <button class="btn btn-primary" type="submit">Send to support</button>
+        </form>
+      </div>
+    </section>
+
   </main>
 </div>
 
-<!-- ============ CAFE PRINT PORTAL (#cafe-print, public) ============ -->
-<div id="cafeShell" class="cafe-shell hidden">
+<!-- ============ CAFE PRINT PORTAL (#print-portal, public) ============ -->
+<div id="printShell" class="cafe-shell hidden">
   <div class="cafe-card">
     <div class="brand">
       <svg width="30" height="30" viewBox="0 0 34 34" fill="none"><rect width="34" height="34" rx="9" fill="var(--accent)"/><path d="M9 11h16M9 17h16M9 23h10" stroke="var(--bg)" stroke-width="2.4" stroke-linecap="round"/></svg>
@@ -356,10 +534,10 @@
     <a class="auth-switch" href="#login" style="display:block; margin-top:18px;">&larr; Back to login</a>
   </div>
 
-  <!-- Printable area (only this shows up via @media print) -->
   <div id="printArea" class="print-area"></div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="app.js"></script>
 </body>
