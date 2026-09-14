@@ -104,7 +104,7 @@
             <path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.67 9c0-.59.1-1.16.28-1.7V4.97H.94A9 9 0 0 0 0 9c0 1.45.35 2.83.94 4.03l3.01-2.33z"/>
             <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .94 4.97l3.01 2.33C4.66 5.17 6.65 3.58 9 3.58z"/>
           </svg>
-          <span>Sign in with Google</span>
+          <span>Continue with Google (Demo)</span>
         </button>
 
         <div class="divider"><span>OR</span></div>
@@ -149,7 +149,7 @@
             <path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.67 9c0-.59.1-1.16.28-1.7V4.97H.94A9 9 0 0 0 0 9c0 1.45.35 2.83.94 4.03l3.01-2.33z"/>
             <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .94 4.97l3.01 2.33C4.66 5.17 6.65 3.58 9 3.58z"/>
           </svg>
-          <span>Sign up with Google</span>
+          <span>Continue with Google (Demo)</span>
         </button>
 
         <div class="divider"><span>OR</span></div>
@@ -210,6 +210,26 @@
       <button type="submit" class="btn btn-primary btn-block">Send reset link</button>
     </form>
     <p class="auth-hint hidden" id="forgotConfirmation">Check your inbox for a link to reset your password.</p>
+  </div>
+</div>
+
+<!-- ============ DELETE ACCOUNT MODAL ============ -->
+<div class="modal-overlay hidden" id="deleteAccountModal">
+  <div class="modal">
+    <button type="button" class="modal-close" id="closeDeleteAccountModal" aria-label="Close">&times;</button>
+    <h2>Delete your account?</h2>
+    <p class="auth-sub">This permanently removes your profile and every document in your vault. This cannot be undone. Enter your password to confirm.</p>
+    <form id="deleteAccountForm" novalidate>
+      <label class="field">
+        <span>Password</span>
+        <div class="password-field">
+          <input type="password" id="deleteAccountPassword" placeholder="••••••••" required>
+          <button type="button" class="pw-toggle" data-target="deleteAccountPassword" aria-label="Show password"><i data-ic="eye"></i></button>
+        </div>
+      </label>
+      <span class="field-error hidden" id="deleteAccountError">That password isn't correct.</span>
+      <button type="submit" class="btn btn-danger btn-block">Permanently delete account</button>
+    </form>
   </div>
 </div>
 
@@ -484,9 +504,47 @@
         <label class="switch"><input type="checkbox" id="ocrToggle"><span class="slider"></span></label>
       </div>
 
+      <div class="section-divider"></div>
+
+      <div class="panel" style="margin-bottom:14px;">
+        <div class="section-head">
+          <h3>Change password</h3>
+        </div>
+        <form class="profile-form" id="changePasswordForm" novalidate>
+          <label class="field">
+            <span>Current password</span>
+            <div class="password-field">
+              <input type="password" id="cpCurrent" placeholder="••••••••" required>
+              <button type="button" class="pw-toggle" data-target="cpCurrent" aria-label="Show password"><i data-ic="eye"></i></button>
+            </div>
+          </label>
+          <label class="field">
+            <span>New password</span>
+            <div class="password-field">
+              <input type="password" id="cpNew" placeholder="At least 6 characters" required minlength="6">
+              <button type="button" class="pw-toggle" data-target="cpNew" aria-label="Show password"><i data-ic="eye"></i></button>
+            </div>
+          </label>
+          <label class="field">
+            <span>Confirm new password</span>
+            <div class="password-field">
+              <input type="password" id="cpConfirm" placeholder="Re-enter new password" required minlength="6">
+              <button type="button" class="pw-toggle" data-target="cpConfirm" aria-label="Show password"><i data-ic="eye"></i></button>
+            </div>
+          </label>
+          <span class="field-error hidden" id="changePasswordError">Something's not right — check the fields below.</span>
+          <button type="submit" class="btn btn-primary">Update password</button>
+        </form>
+      </div>
+
       <div class="panel settings-row danger-row">
         <div><h3>Clear local vault</h3><p class="muted">Remove all documents stored in this browser session.</p></div>
         <button class="btn btn-danger" type="button" id="clearVaultBtn">Clear everything</button>
+      </div>
+
+      <div class="panel settings-row danger-row">
+        <div><h3>Delete account</h3><p class="muted">Permanently remove your profile and every document in your vault.</p></div>
+        <button class="btn btn-danger" type="button" id="deleteAccountBtn">Delete account</button>
       </div>
     </section>
 

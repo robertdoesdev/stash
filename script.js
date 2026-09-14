@@ -96,6 +96,31 @@ const DB = {
     return users[id];
   },
 
+  // Used when editing a profile, to stop two accounts from ending up with
+  // the same matric number or email (which would break identifier login).
+  async findConflictingUser(matric, email, excludeId) {
+    const users = await this.getUsers();
+    const m = (matric || '').toLowerCase();
+    const e = (email || '').toLowerCase();
+    return Object.values(users).find(u =>
+      u.id !== excludeId && ((m && u.matric.toLowerCase() === m) || (e && u.email.toLowerCase() === e))
+    ) || null;
+  },
+
+  async deleteUser(id) {
+    const users = await this.getUsers();
+    delete users[id];
+    await this.saveUsers(users);
+    // Revoke any cafe PINs the deleted account had issued so a stale link
+    // can't keep exposing a document after the account is gone.
+    const pins = await this.getPins();
+    let changed = false;
+    Object.keys(pins).forEach(p => {
+      if (pins[p].userId === id) { delete pins[p]; changed = true; }
+    });
+    if (changed) await this.savePins(pins);
+  },
+
   async getDocuments(userId) {
     const users = await this.getUsers();
     return (users[userId] && users[userId].documents) || [];
@@ -220,6 +245,10 @@ const UI = {
     if (el) el.classList.add('hidden');
   }
 };
+
+function isValidEmail(str) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((str || '').trim());
+}
 
 function fileToDataURL(file) {
   return new Promise((resolve, reject) => {
@@ -929,12 +958,12 @@ function initAuthForms() {
   document.getElementById('googleLoginBtn').addEventListener('click', async () => {
     await Auth.loginWithGoogle();
     window.location.hash = '#dashboard';
-    UI.toast('Signed in with Google');
+    UI.toast('Signed in with a demo Google account');
   });
   document.getElementById('googleSignupBtn').addEventListener('click', async () => {
     await Auth.loginWithGoogle();
     window.location.hash = '#dashboard';
-    UI.toast('Signed up with Google');
+    UI.toast('Signed in with a demo Google account');
   });
 
   document.getElementById('loginForm').addEventListener('submit', async e => {
@@ -954,12 +983,16 @@ function initAuthForms() {
     UI.hideFieldError('signupError');
     const password = document.getElementById('suPassword').value;
     const confirmPw = document.getElementById('suConfirmPassword').value;
-    if (password !== confirmPw) { UI.showFieldError('signupError'); return; }
+    const email = document.getElementById('suEmail').value.trim();
+
+    if (!isValidEmail(email)) { UI.showFieldError('signupError', 'Enter a valid email address.'); return; }
+    if (password.length < 6) { UI.showFieldError('signupError', 'Password must be at least 6 characters.'); return; }
+    if (password !== confirmPw) { UI.showFieldError('signupError', "Passwords don't match."); return; }
 
     const result = await Auth.signup({
       name: document.getElementById('suName').value.trim() || 'Student',
       matric: document.getElementById('suMatric').value.trim(),
-      email: document.getElementById('suEmail').value.trim(),
+      email,
       password,
       level: document.getElementById('suLevel').value
     });
@@ -1008,6 +1041,17 @@ function initAppShellChrome() {
       email: document.getElementById('pEmail').value.trim(),
       avatar: existing.avatar || null
     };
+
+    if (profile.email && !isValidEmail(profile.email)) {
+      UI.toast('Enter a valid email address');
+      return;
+    }
+    const conflict = await DB.findConflictingUser(profile.matric, profile.email, user.id);
+    if (conflict) {
+      UI.toast('That matric number or email is already used by another account');
+      return;
+    }
+
     await DB.saveProfile(user.id, profile);
     Views.setAvatarDisplay(profile);
     document.getElementById('greeting') && (document.getElementById('greeting').textContent = `Good to see you, ${profile.name.split(' ')[0]}`);
@@ -1060,6 +1104,61 @@ function initAppShellChrome() {
   });
 }
 
+function initAccountSecurity() {
+  document.getElementById('changePasswordForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    UI.hideFieldError('changePasswordError');
+    const user = await Auth.currentUser();
+    if (!user) return;
+
+    const current = document.getElementById('cpCurrent').value;
+    const next = document.getElementById('cpNew').value;
+    const confirm = document.getElementById('cpConfirm').value;
+
+    if (current !== user.password) {
+      UI.showFieldError('changePasswordError', 'Current password is incorrect.');
+      return;
+    }
+    if (next.length < 6) {
+      UI.showFieldError('changePasswordError', 'New password must be at least 6 characters.');
+      return;
+    }
+    if (next !== confirm) {
+      UI.showFieldError('changePasswordError', "New passwords don't match.");
+      return;
+    }
+
+    await DB.updateUser(user.id, { password: next });
+    e.target.reset();
+    UI.toast('Password updated');
+  });
+
+  document.getElementById('deleteAccountBtn').addEventListener('click', () => {
+    document.getElementById('deleteAccountForm').reset();
+    UI.hideFieldError('deleteAccountError');
+    UI.openModal('deleteAccountModal');
+  });
+  document.getElementById('closeDeleteAccountModal').addEventListener('click', () => UI.closeModal('deleteAccountModal'));
+  document.getElementById('deleteAccountModal').addEventListener('click', e => {
+    if (e.target.id === 'deleteAccountModal') UI.closeModal('deleteAccountModal');
+  });
+  document.getElementById('deleteAccountForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const user = await Auth.currentUser();
+    if (!user) return;
+    const password = document.getElementById('deleteAccountPassword').value;
+    if (password !== user.password) {
+      UI.showFieldError('deleteAccountError');
+      return;
+    }
+    await DB.deleteUser(user.id);
+    DB.clearSession();
+    UI.closeModal('deleteAccountModal');
+    UI.toast('Account deleted');
+    window.location.hash = '#landing';
+  });
+}
+
 /* =========================================================
    INIT
    ========================================================= */
@@ -1073,6 +1172,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   initAuthForms();
   initDocModal();
   initAppShellChrome();
+  initAccountSecurity();
   Documents.init();
   CafePrint.init();
 
