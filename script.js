@@ -1120,8 +1120,12 @@ const Documents = {
     dz.addEventListener('click', e => { if (!e.target.closest('button')) input.click(); });
     ['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('drag'); }));
     ['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('drag'); }));
-    dz.addEventListener('drop', e => { if (e.dataTransfer.files.length) this.handleFiles(e.dataTransfer.files); });
-    input.addEventListener('change', e => { if (e.target.files.length) this.handleFiles(e.target.files); input.value = ''; });
+    dz.addEventListener('drop', e => { const files = Array.from(e.dataTransfer.files || []); if (files.length) this.handleFiles(files); });
+    input.addEventListener('change', e => {
+      const files = Array.from(e.target.files || []);
+      input.value = '';
+      if (files.length) this.handleFiles(files);
+    });
 
     document.getElementById('compileBtn').addEventListener('click', () => this.compileClearance());
 
