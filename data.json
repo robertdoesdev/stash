@@ -2,8 +2,16 @@
   "app": {
     "name": "Stash",
     "tagline": "Your school papers, sorted",
-    "storageQuotaMB": 2048,
     "cafePinExpiryMinutes": 10
+  },
+  "plans": {
+    "free": { "label": "Free", "maxDocuments": 50, "maxStorageMB": 2048 },
+    "pro": { "label": "Pro", "maxDocuments": null, "maxStorageMB": 20480 }
+  },
+  "upload": {
+    "maxFileSizeMB": 10,
+    "acceptedTypes": ["application/pdf", "image/jpeg", "image/jpg", "image/png"],
+    "acceptedExtensions": [".pdf", ".jpg", ".jpeg", ".png"]
   },
   "categories": [
     { "id": "Receipt", "label": "Receipt", "badge": "RCT", "color": "accent" },
@@ -12,6 +20,7 @@
   ],
   "levels": ["100L", "200L", "300L", "400L", "500L"],
   "semesters": ["First", "Second"],
+  "referenceTypes": ["RRR", "Receipt No.", "Invoice No.", "Reference No.", "Other"],
   "documentSchema": {
     "id": null,
     "name": "",
@@ -19,12 +28,16 @@
     "level": "100L",
     "semester": "First",
     "course": "",
-    "rrr": "",
+    "referenceType": "RRR",
+    "referenceNumber": "",
     "amount": 0,
     "date": "",
-    "fileData": null,
+    "size": 0,
     "fileType": "",
-    "ocrText": ""
+    "uploadedAt": "",
+    "modifiedAt": "",
+    "ocrText": "",
+    "ocrStatus": "skipped"
   },
   "profileSchema": {
     "name": "",

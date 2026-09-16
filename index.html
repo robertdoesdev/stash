@@ -241,27 +241,32 @@
       <div class="doc-preview-pane" id="docPreviewPane"></div>
       <form class="doc-edit-pane" id="docEditForm" novalidate>
         <label class="field"><span>Document name</span><input type="text" id="editName" required></label>
+        <p class="doc-modal-meta" id="docModalMeta"></p>
         <div class="field-row">
-          <label class="field"><span>RRR / Reference</span><input type="text" id="editRRR"></label>
+          <label class="field"><span>Reference type</span><select id="editReferenceType"></select></label>
+          <label class="field"><span>Reference number</span><input type="text" id="editReferenceNumber"></label>
+        </div>
+        <div class="field-row">
           <label class="field"><span>Amount (₦)</span><input type="text" id="editAmount"></label>
-        </div>
-        <div class="field-row">
           <label class="field"><span>Date</span><input type="date" id="editDate"></label>
-          <label class="field"><span>Category</span><select id="editCategory"></select></label>
         </div>
         <div class="field-row">
+          <label class="field"><span>Category</span><select id="editCategory"></select></label>
           <label class="field"><span>Level</span><select id="editLevel"></select></label>
-          <label class="field"><span>Semester</span><select id="editSemester"></select></label>
         </div>
-        <label class="field"><span>Course code (optional)</span><input type="text" id="editCourse"></label>
+        <div class="field-row">
+          <label class="field"><span>Semester</span><select id="editSemester"></select></label>
+          <label class="field"><span>Course code (optional)</span><input type="text" id="editCourse"></label>
+        </div>
 
         <div class="ocr-text-box hidden" id="ocrTextBox">
-          <span class="field-label">Text detected on scan</span>
+          <span class="field-label" id="ocrStatusLabel">Text detected on scan</span>
           <p id="ocrTextContent"></p>
         </div>
 
         <div class="drop-actions">
           <button type="button" class="btn btn-danger" id="deleteDocBtn">Delete</button>
+          <button type="button" class="btn btn-secondary" id="downloadDocBtn">Download</button>
           <button type="button" class="btn btn-secondary" id="printDocBtn"><i data-ic="stack"></i>Print</button>
           <button type="submit" class="btn btn-primary">Save changes</button>
         </div>
@@ -323,7 +328,7 @@
             <circle cx="60" cy="60" r="50" class="ring-track"/>
             <circle cx="60" cy="60" r="50" class="ring-fill" id="storageRing"/>
           </svg>
-          <div class="ring-center"><strong id="ringPct">0%</strong><span>of 2 GB</span></div>
+          <div class="ring-center"><strong id="ringPct">0%</strong><span id="ringSubLabel">of 2 GB</span></div>
           <div class="ring-legend" id="ringLegend"></div>
         </div>
 
@@ -363,6 +368,25 @@
         <select id="fLevel"><option value="">All levels</option></select>
         <select id="fSemester"><option value="">All semesters</option></select>
         <select id="fCategory"><option value="">All categories</option></select>
+        <select id="docSort">
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="name">Name (A–Z)</option>
+          <option value="amount">Amount (high–low)</option>
+        </select>
+        <label class="select-all-inline">
+          <input type="checkbox" id="selectAllDocs">
+          <span>Select all</span>
+        </label>
+      </div>
+
+      <div class="bulk-bar hidden" id="bulkBar">
+        <span id="bulkCount">0 selected</span>
+        <div class="bulk-bar-actions">
+          <button type="button" class="btn btn-secondary" id="bulkDownloadBtn">Download</button>
+          <button type="button" class="btn btn-danger" id="bulkDeleteBtn">Delete</button>
+          <button type="button" class="btn btn-ghost" id="bulkClearBtn">Clear selection</button>
+        </div>
       </div>
 
       <div class="doc-list" id="docList"></div>
@@ -381,12 +405,15 @@
         <p class="view-sub">Drop one or more files — Stash reads the details for you where it can.</p>
       </div>
 
+      <p class="upload-capacity-line muted" id="uploadCapacityLine"></p>
+      <p class="storage-warning hidden" id="uploadStorageWarning"></p>
+
       <div class="panel dropzone" id="dropzone">
-        <input type="file" id="fileInput" accept="image/*,.pdf" multiple hidden>
+        <input type="file" id="fileInput" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" multiple hidden>
         <i data-ic="upload" class="drop-icon"></i>
         <h3>Drag files here, or</h3>
         <button class="btn btn-primary" type="button" id="chooseFileBtn">Choose files</button>
-        <span class="drop-hint">PDF, JPG or PNG · multiple files at once · Remita slips, dockets, bank receipts</span>
+        <span class="drop-hint">PDF, JPG or PNG &middot; up to 10MB each &middot; multiple files at once</span>
       </div>
 
       <div class="panel upload-queue hidden" id="uploadQueue">
@@ -476,6 +503,7 @@
           <span class="muted" id="storageDetailText">0% used</span>
         </div>
         <div class="storage-bar"><div class="storage-bar-fill" id="profileStorageFill"></div></div>
+        <p class="storage-warning hidden" id="storageWarning"></p>
       </div>
     </section>
 

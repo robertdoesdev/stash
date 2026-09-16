@@ -39,7 +39,16 @@ async function loadConfig() {
     CONFIG = await res.json();
   } catch (e) {
     CONFIG = {
-      app: { name: 'Stash', tagline: 'Your school papers, sorted', storageQuotaMB: 2048, cafePinExpiryMinutes: 10 },
+      app: { name: 'Stash', tagline: 'Your school papers, sorted', cafePinExpiryMinutes: 10 },
+      plans: {
+        free: { label: 'Free', maxDocuments: 50, maxStorageMB: 2048 },
+        pro: { label: 'Pro', maxDocuments: null, maxStorageMB: 20480 }
+      },
+      upload: {
+        maxFileSizeMB: 10,
+        acceptedTypes: ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'],
+        acceptedExtensions: ['.pdf', '.jpg', '.jpeg', '.png']
+      },
       categories: [
         { id: 'Receipt', label: 'Receipt', badge: 'RCT', color: 'accent' },
         { id: 'Docket', label: 'Docket', badge: 'DKT', color: 'accent-2' },
@@ -47,6 +56,7 @@ async function loadConfig() {
       ],
       levels: ['100L', '200L', '300L', '400L', '500L'],
       semesters: ['First', 'Second'],
+      referenceTypes: ['RRR', 'Receipt No.', 'Invoice No.', 'Reference No.', 'Other'],
       defaultProfile: { name: '', matric: '', email: '', department: '', level: '100L', avatar: null },
       defaultSettings: { theme: 'dark', offlineAccess: true, ocrAutofill: true },
       pricingPlans: [],
@@ -57,8 +67,89 @@ async function loadConfig() {
 }
 
 /* =========================================================
-   DATA LAYER (localStorage today, Supabase-shaped for tomorrow)
+   FILE STORE (IndexedDB) — holds the actual file bytes.
+   localStorage (used for everything else) tops out around 5-10MB
+   per origin in most browsers, which can't honestly hold even a
+   handful of real 10MB uploads, let alone a 2GB/20GB quota. Blobs
+   live here; only small metadata lives in the DB/localStorage layer.
    ========================================================= */
+const FileStore = {
+  _db: null,
+  _urlCache: new Map(),
+
+  open() {
+    if (this._db) return Promise.resolve(this._db);
+    if (typeof indexedDB === 'undefined') return Promise.reject(new Error('IndexedDB unavailable'));
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open('stash_files_db', 1);
+      req.onupgradeneeded = () => {
+        if (!req.result.objectStoreNames.contains('files')) {
+          req.result.createObjectStore('files');
+        }
+      };
+      req.onsuccess = () => { this._db = req.result; resolve(this._db); };
+      req.onerror = () => reject(req.error || new Error('Could not open local file storage'));
+    });
+  },
+
+  async put(id, blob) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('files', 'readwrite');
+      tx.objectStore('files').put(blob, id);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error || new Error('Could not save file'));
+    });
+  },
+
+  async get(id) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('files', 'readonly');
+      const req = tx.objectStore('files').get(id);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error || new Error('Could not read file'));
+    });
+  },
+
+  async delete(id) {
+    const db = await this.open();
+    const cached = this._urlCache.get(id);
+    if (cached) { URL.revokeObjectURL(cached); this._urlCache.delete(id); }
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('files', 'readwrite');
+      tx.objectStore('files').delete(id);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error || new Error('Could not delete file'));
+    });
+  },
+
+  // Object URLs are cached per document id so repeated preview/thumbnail
+  // renders don't keep allocating new blob: URLs.
+  async getObjectURL(id) {
+    if (this._urlCache.has(id)) return this._urlCache.get(id);
+    const blob = await this.get(id);
+    if (!blob) return null;
+    const url = URL.createObjectURL(blob);
+    this._urlCache.set(id, url);
+    return url;
+  }
+};
+
+/* =========================================================
+   PLANS — Free/Pro limits. Billing itself isn't connected yet
+   (that lands in a later phase); every account is on 'free' by
+   default and these limits are enforced for real regardless.
+   ========================================================= */
+const Plans = {
+  of(user) { return (user && user.plan) || 'free'; },
+  limits(user) {
+    const id = this.of(user);
+    return CONFIG.plans[id] || CONFIG.plans.free;
+  }
+};
+
+
 const DB = {
   _read(key, fallback) {
     try {
@@ -82,7 +173,7 @@ const DB = {
     const id = 'u_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     const profile = { ...CONFIG.defaultProfile, name, matric, email, level: level || '100L' };
     const settings = { ...CONFIG.defaultSettings };
-    const user = { id, name, matric, email, password, profile, settings, documents: [] };
+    const user = { id, name, matric, email, password, plan: 'free', profile, settings, documents: [] };
     users[id] = user;
     await this.saveUsers(users);
     return user;
@@ -109,8 +200,10 @@ const DB = {
 
   async deleteUser(id) {
     const users = await this.getUsers();
+    const docs = (users[id] && users[id].documents) || [];
     delete users[id];
     await this.saveUsers(users);
+    await Promise.all(docs.map(d => FileStore.delete(d.id).catch(() => {})));
     // Revoke any cafe PINs the deleted account had issued so a stale link
     // can't keep exposing a document after the account is gone.
     const pins = await this.getPins();
@@ -123,13 +216,42 @@ const DB = {
 
   async getDocuments(userId) {
     const users = await this.getUsers();
-    return (users[userId] && users[userId].documents) || [];
+    const docs = (users[userId] && users[userId].documents) || [];
+
+    // One-time migration: earlier builds embedded files as base64 directly
+    // in the document record. Move any of those into FileStore so they
+    // don't sit uncounted (or get lost) under the new storage model.
+    const legacy = docs.filter(d => d.fileData && !d.hasFile);
+    if (legacy.length) {
+      for (const d of legacy) {
+        try {
+          const blob = dataURLtoBlob(d.fileData);
+          await FileStore.put(d.id, blob);
+          d.hasFile = true;
+          d.size = blob.size;
+          d.fileType = d.fileType || blob.type;
+          d.uploadedAt = d.uploadedAt || new Date().toISOString();
+          d.modifiedAt = d.modifiedAt || d.uploadedAt;
+          d.referenceNumber = d.referenceNumber || d.rrr || '';
+          d.referenceType = d.referenceType || 'RRR';
+          d.ocrStatus = d.ocrStatus || (d.ocrText ? 'done' : 'skipped');
+          delete d.fileData;
+          delete d.rrr;
+        } catch (e) { /* leave this one as-is; it'll just show "no preview" */ }
+      }
+      await this.saveDocuments(userId, docs);
+    }
+    return docs;
   },
   async saveDocuments(userId, docs) {
     const users = await this.getUsers();
     if (!users[userId]) return [];
     users[userId].documents = docs;
-    await this.saveUsers(users);
+    try {
+      await this.saveUsers(users);
+    } catch (e) {
+      throw new Error('Could not save changes — local storage may be full.');
+    }
     return docs;
   },
 
@@ -250,6 +372,27 @@ function isValidEmail(str) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((str || '').trim());
 }
 
+function escapeHTML(str) {
+  const div = document.createElement('div');
+  div.textContent = str == null ? '' : String(str);
+  return div.innerHTML;
+}
+
+function formatFileSize(bytes) {
+  if (!bytes) return '0 KB';
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function dataURLtoBlob(dataURL) {
+  const [header, base64] = dataURL.split(',');
+  const mime = (header.match(/data:(.*?);base64/) || [])[1] || 'application/octet-stream';
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
 function fileToDataURL(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -313,7 +456,7 @@ async function router() {
 
     if (route === 'dashboard') await Views.renderDashboard();
     if (route === 'documents') await Views.renderDocuments();
-    if (route === 'upload') { /* nothing to pre-render */ }
+    if (route === 'upload') await Views.renderUploadCapacity();
     if (route === 'clearance') await Views.renderClearance();
     if (route === 'cafepin') await Views.populateCafeSelect();
     if (route === 'profile') await Views.renderProfile();
@@ -398,6 +541,7 @@ const Views = {
     this.populateSelect(document.getElementById('editLevel'), levels);
     this.populateSelect(document.getElementById('editSemester'), semesters);
     this.populateSelect(document.getElementById('editCategory'), categories);
+    this.populateSelect(document.getElementById('editReferenceType'), CONFIG.referenceTypes || ['Reference']);
     this.populateSelect(document.getElementById('pLevel'), levels);
 
     this.populateSelect(document.getElementById('fLevel'), levels, { withEmpty: true, emptyLabel: 'All levels' });
@@ -410,32 +554,53 @@ const Views = {
   categoryMeta(id) { return CONFIG.categories.find(c => c.id === id) || CONFIG.categories[0]; },
 
   async storageStats(userId) {
+    const user = await Auth.currentUser();
     const docs = await DB.getDocuments(userId);
-    const quotaMB = CONFIG.app.storageQuotaMB;
-    const usedMB = Math.min(docs.length * 4, quotaMB);
-    const pct = Math.round((usedMB / quotaMB) * 100);
-    return { docs, usedMB, quotaMB, pct };
+    const limits = Plans.limits(user);
+    const usedBytes = docs.reduce((sum, d) => sum + (d.size || 0), 0);
+    const usedMB = Math.round((usedBytes / (1024 * 1024)) * 10) / 10;
+    const quotaMB = limits.maxStorageMB;
+    const pct = quotaMB ? Math.min(100, Math.round((usedMB / quotaMB) * 100)) : 0;
+    return {
+      docs, usedBytes, usedMB, quotaMB, pct,
+      docCount: docs.length,
+      maxDocuments: limits.maxDocuments,
+      remainingMB: quotaMB ? Math.max(0, Math.round((quotaMB - usedMB) * 10) / 10) : Infinity,
+      remainingDocs: limits.maxDocuments ? Math.max(0, limits.maxDocuments - docs.length) : Infinity
+    };
   },
 
-  docCardHTML(d) {
+  async docCardHTML(d, { selectable = true } = {}) {
     const cat = this.categoryMeta(d.category);
     const amount = d.amount ? `\u20a6${Number(d.amount).toLocaleString()}` : '\u2014';
-    const thumb = d.fileData && (d.fileType || '').startsWith('image/')
-      ? `<div class="doc-thumb" style="background-image:url('${d.fileData}')"></div>`
-      : `<div class="doc-badge badge-${cat.color}">${cat.badge}</div>`;
+    let thumb;
+    if (d.hasFile && (d.fileType || '').startsWith('image/')) {
+      const url = await FileStore.getObjectURL(d.id).catch(() => null);
+      thumb = url
+        ? `<div class="doc-thumb" style="background-image:url('${url}')"></div>`
+        : `<div class="doc-badge badge-${cat.color}">${cat.badge}</div>`;
+    } else {
+      thumb = `<div class="doc-badge badge-${cat.color}">${cat.badge}</div>`;
+    }
+    const checkbox = selectable
+      ? `<label class="doc-check" onclick="event.stopPropagation()"><input type="checkbox" class="doc-check-input" value="${d.id}"></label>`
+      : '';
     return `
       <div class="doc-card" data-id="${d.id}">
-        <label class="doc-check" onclick="event.stopPropagation()">
-          <input type="checkbox" class="ce-check" value="${d.id}">
-        </label>
+        ${checkbox}
         ${thumb}
         <div class="doc-info">
-          <p class="doc-name">${d.name}</p>
-          <p class="doc-meta">${cat.label}${d.course ? ' &middot; ' + d.course : ''} &middot; ${d.level} &middot; ${d.semester} sem</p>
+          <p class="doc-name">${escapeHTML(d.name)}</p>
+          <p class="doc-meta">${cat.label}${d.course ? ' &middot; ' + escapeHTML(d.course) : ''} &middot; ${d.level} &middot; ${d.semester} sem${d.size ? ' &middot; ' + formatFileSize(d.size) : ''}</p>
         </div>
         <div class="doc-amount">${amount}</div>
-        <div class="doc-date">${d.date || '\u2014'}</div>
+        <div class="doc-date">${d.date || (d.uploadedAt ? d.uploadedAt.slice(0, 10) : '\u2014')}</div>
       </div>`;
+  },
+
+  async docListHTML(docs, opts = {}) {
+    const cards = await Promise.all(docs.map(d => this.docCardHTML(d, opts)));
+    return cards.join('');
   },
 
   async renderDashboard() {
@@ -444,10 +609,11 @@ const Views = {
     const profile = await DB.getProfile(user.id);
     document.getElementById('greeting').textContent = `Good to see you, ${(profile.name || 'there').split(' ')[0]}`;
 
-    const { docs, pct } = await this.storageStats(user.id);
+    const { docs, pct, usedMB, quotaMB, docCount, maxDocuments } = await this.storageStats(user.id);
     setRing(pct);
+    document.getElementById('ringSubLabel').textContent = `of ${quotaMB >= 1024 ? (quotaMB / 1024).toFixed(1) + ' GB' : quotaMB + ' MB'}`;
 
-    document.getElementById('statTotal').textContent = docs.length;
+    document.getElementById('statTotal').textContent = maxDocuments ? `${docCount}/${maxDocuments}` : docCount;
     const thisMonth = docs.filter(d => (d.date || '').slice(0, 7) === new Date().toISOString().slice(0, 7)).length;
     document.getElementById('statMonth').textContent = thisMonth;
     document.getElementById('statFlagged').textContent = 0;
@@ -459,40 +625,63 @@ const Views = {
     }).join('');
 
     document.getElementById('recentList').innerHTML = docs.length
-      ? docs.slice(0, 5).map(d => this.docCardHTML(d)).join('')
+      ? await this.docListHTML(docs.slice(0, 5), { selectable: false })
       : '<p class="muted">No documents yet \u2014 head to Scan &amp; Upload to add your first one.</p>';
 
     document.getElementById('sidebarStorageFill').style.width = pct + '%';
-    document.getElementById('sidebarStorageText').textContent = `${pct}% of ${(CONFIG.app.storageQuotaMB / 1024).toFixed(1)}GB used`;
+    document.getElementById('sidebarStorageText').textContent = quotaMB >= 1024
+      ? `${pct}% of ${(quotaMB / 1024).toFixed(1)}GB used`
+      : `${pct}% of ${quotaMB}MB used`;
 
     this.bindDocCardClicks(document.getElementById('recentList'));
   },
 
-  async renderDocuments() { await this.filterDocuments(); },
+  async renderDocuments() {
+    Vault.resetSelection();
+    await this.filterDocuments();
+  },
 
   async filterDocuments() {
     const user = await Auth.currentUser();
     if (!user) return;
     const docs = await DB.getDocuments(user.id);
 
-    const q = (document.getElementById('globalSearch').value || '').toLowerCase();
+    const q = (document.getElementById('globalSearch').value || '').trim().toLowerCase();
     const level = document.getElementById('fLevel').value;
     const sem = document.getElementById('fSemester').value;
     const cat = document.getElementById('fCategory').value;
+    const sort = document.getElementById('docSort') ? document.getElementById('docSort').value : 'newest';
 
-    const list = docs.filter(d =>
-      (!level || d.level === level) &&
-      (!sem || d.semester === sem) &&
-      (!cat || d.category === cat) &&
-      (!q || (d.name + ' ' + (d.course || '') + ' ' + d.category).toLowerCase().includes(q))
-    );
+    let list = docs.filter(d => {
+      if (level && d.level !== level) return false;
+      if (sem && d.semester !== sem) return false;
+      if (cat && d.category !== cat) return false;
+      if (!q) return true;
+      const catLabel = this.categoryMeta(d.category).label;
+      const haystack = [
+        d.name, d.course, d.category, catLabel, d.referenceNumber, d.referenceType,
+        d.amount ? String(d.amount) : '', d.date, d.uploadedAt ? d.uploadedAt.slice(0, 10) : '',
+        d.level, d.semester, d.ocrText
+      ].filter(Boolean).join(' ').toLowerCase();
+      return haystack.includes(q);
+    });
+
+    const sorters = {
+      newest: (a, b) => (b.uploadedAt || '').localeCompare(a.uploadedAt || ''),
+      oldest: (a, b) => (a.uploadedAt || '').localeCompare(b.uploadedAt || ''),
+      name: (a, b) => a.name.localeCompare(b.name),
+      amount: (a, b) => (b.amount || 0) - (a.amount || 0)
+    };
+    list = list.slice().sort(sorters[sort] || sorters.newest);
 
     const container = document.getElementById('docList');
     const empty = document.getElementById('docEmpty');
     const emptyTitle = document.getElementById('emptyStateTitle');
+    const bulkBar = document.getElementById('bulkBar');
 
     if (!docs.length) {
       container.innerHTML = '';
+      if (bulkBar) bulkBar.classList.add('hidden');
       emptyTitle.textContent = 'Your Stash Vault is empty';
       empty.querySelector('p').textContent = 'Click below to upload your first document.';
       empty.classList.remove('hidden');
@@ -500,6 +689,7 @@ const Views = {
     }
     if (!list.length) {
       container.innerHTML = '';
+      if (bulkBar) bulkBar.classList.add('hidden');
       emptyTitle.textContent = 'Nothing matches those filters';
       empty.querySelector('p').textContent = 'Try clearing a filter or search term.';
       empty.classList.remove('hidden');
@@ -507,8 +697,39 @@ const Views = {
     }
 
     empty.classList.add('hidden');
-    container.innerHTML = list.map(d => this.docCardHTML(d)).join('');
+    container.innerHTML = await this.docListHTML(list, { selectable: true });
     this.bindDocCardClicks(container);
+    Vault.bindCheckboxes(container);
+  },
+
+  async renderUploadCapacity() {
+    const user = await Auth.currentUser();
+    if (!user) return;
+    const { pct, remainingMB, remainingDocs, maxDocuments, quotaMB } = await this.storageStats(user.id);
+
+    const line = document.getElementById('uploadCapacityLine');
+    if (line) {
+      const storagePart = remainingMB === Infinity ? 'Unlimited storage' : `${remainingMB}MB of ${quotaMB >= 1024 ? (quotaMB / 1024).toFixed(1) + 'GB' : quotaMB + 'MB'} left`;
+      const docsPart = remainingDocs === Infinity ? 'unlimited documents' : `${remainingDocs} document${remainingDocs === 1 ? '' : 's'} left on your plan`;
+      line.textContent = `${storagePart} \u00b7 ${docsPart}`;
+    }
+
+    const warning = document.getElementById('uploadStorageWarning');
+    if (warning) {
+      const atDocLimit = maxDocuments && remainingDocs <= 0;
+      const atStorageLimit = remainingMB !== Infinity && remainingMB <= 0;
+      if (atDocLimit || atStorageLimit) {
+        warning.textContent = atDocLimit
+          ? `You've reached your ${maxDocuments}-document limit. Delete something or upgrade to Pro to add more.`
+          : 'Your vault is full. Delete something or upgrade to Pro to add more.';
+        warning.classList.remove('hidden');
+      } else if (pct >= 90) {
+        warning.textContent = 'Storage is almost full — uploads may start getting rejected soon.';
+        warning.classList.remove('hidden');
+      } else {
+        warning.classList.add('hidden');
+      }
+    }
   },
 
   bindDocCardClicks(root) {
@@ -563,9 +784,22 @@ const Views = {
 
     this.setAvatarDisplay(profile);
 
-    const { pct, usedMB, quotaMB } = await this.storageStats(user.id);
+    const { pct, usedMB, quotaMB, docCount, maxDocuments } = await this.storageStats(user.id);
     document.getElementById('profileStorageFill').style.width = pct + '%';
-    document.getElementById('storageDetailText').textContent = `${pct}% used \u00b7 ${usedMB}MB of ${(quotaMB / 1024).toFixed(1)}GB`;
+    document.getElementById('storageDetailText').textContent = quotaMB >= 1024
+      ? `${pct}% used \u00b7 ${usedMB}MB of ${(quotaMB / 1024).toFixed(1)}GB \u00b7 ${docCount}${maxDocuments ? '/' + maxDocuments : ''} documents`
+      : `${pct}% used \u00b7 ${usedMB}MB of ${quotaMB}MB \u00b7 ${docCount}${maxDocuments ? '/' + maxDocuments : ''} documents`;
+    const warning = document.getElementById('storageWarning');
+    if (warning) {
+      if (pct >= 90) {
+        warning.classList.remove('hidden');
+        warning.textContent = pct >= 100
+          ? 'Your vault is full. Delete documents or upgrade to Pro to add more.'
+          : 'Storage is almost full. Consider deleting old documents or upgrading to Pro.';
+      } else {
+        warning.classList.add('hidden');
+      }
+    }
   },
 
   setAvatarDisplay(profile) {
@@ -633,6 +867,102 @@ const Views = {
   }
 };
 
+function extensionFor(mime) {
+  const map = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/png': 'png' };
+  return map[mime] || '';
+}
+function downloadFilename(doc) {
+  const ext = extensionFor(doc.fileType);
+  const base = (doc.name || 'document').replace(/[\\/:*?"<>|]/g, '_').trim() || 'document';
+  return ext ? `${base}.${ext}` : base;
+}
+function triggerDownload(url, filename) {
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+/* =========================================================
+   VAULT — multi-select + bulk actions on the Documents view
+   ========================================================= */
+const Vault = {
+  selected: new Set(),
+
+  resetSelection() {
+    this.selected.clear();
+    this.updateBar();
+  },
+
+  bindCheckboxes(root) {
+    root.querySelectorAll('.doc-check-input').forEach(cb => {
+      cb.checked = this.selected.has(cb.value);
+      cb.addEventListener('change', () => {
+        if (cb.checked) this.selected.add(cb.value); else this.selected.delete(cb.value);
+        this.updateBar();
+      });
+    });
+    const selectAll = document.getElementById('selectAllDocs');
+    if (selectAll) selectAll.checked = false;
+    this.updateBar();
+  },
+
+  updateBar() {
+    const bar = document.getElementById('bulkBar');
+    if (!bar) return;
+    const n = this.selected.size;
+    bar.classList.toggle('hidden', n === 0);
+    if (n) document.getElementById('bulkCount').textContent = `${n} selected`;
+  },
+
+  selectAll(checked) {
+    document.querySelectorAll('#docList .doc-check-input').forEach(cb => {
+      cb.checked = checked;
+      if (checked) this.selected.add(cb.value); else this.selected.delete(cb.value);
+    });
+    this.updateBar();
+  },
+
+  async bulkDelete() {
+    const user = await Auth.currentUser();
+    if (!user || !this.selected.size) return;
+    const ids = [...this.selected];
+    if (!confirm(`Delete ${ids.length} document${ids.length === 1 ? '' : 's'}? This cannot be undone.`)) return;
+
+    let docs = await DB.getDocuments(user.id);
+    docs = docs.filter(d => !ids.includes(d.id));
+    try {
+      await DB.saveDocuments(user.id, docs);
+    } catch (e) {
+      UI.toast(e.message || 'Could not delete — please try again');
+      return;
+    }
+    await Promise.all(ids.map(id => FileStore.delete(id).catch(() => {})));
+    this.resetSelection();
+    UI.toast(`${ids.length} document${ids.length === 1 ? '' : 's'} deleted`);
+    await Views.filterDocuments();
+    if (currentRoute() === 'dashboard') await Views.renderDashboard();
+  },
+
+  async bulkDownload() {
+    const user = await Auth.currentUser();
+    if (!user || !this.selected.size) return;
+    const docs = await DB.getDocuments(user.id);
+    let count = 0;
+    for (const id of this.selected) {
+      const doc = docs.find(d => d.id === id);
+      if (!doc || !doc.hasFile) continue;
+      const url = await FileStore.getObjectURL(id).catch(() => null);
+      if (!url) continue;
+      triggerDownload(url, downloadFilename(doc));
+      count++;
+    }
+    UI.toast(count ? `Downloading ${count} file${count === 1 ? '' : 's'}` : 'Nothing downloadable in this selection');
+  }
+};
+
 /* =========================================================
    DOCUMENT PREVIEW / EDIT MODAL
    ========================================================= */
@@ -647,17 +977,26 @@ const DocModal = {
     this.currentId = id;
 
     const pane = document.getElementById('docPreviewPane');
-    if (doc.fileData && (doc.fileType || '').startsWith('image/')) {
-      pane.innerHTML = `<img src="${doc.fileData}" alt="${doc.name}">`;
-    } else if (doc.fileData && doc.fileType === 'application/pdf') {
-      pane.innerHTML = `<embed src="${doc.fileData}" type="application/pdf">`;
+    pane.innerHTML = `<div class="doc-preview-placeholder"><i data-ic="file"></i><p>Loading preview\u2026</p></div>`;
+    renderIcons(pane);
+
+    if (doc.hasFile) {
+      const url = await FileStore.getObjectURL(id).catch(() => null);
+      if (url && (doc.fileType || '').startsWith('image/')) {
+        pane.innerHTML = `<img src="${url}" alt="${escapeHTML(doc.name)}">`;
+      } else if (url && doc.fileType === 'application/pdf') {
+        pane.innerHTML = `<embed src="${url}" type="application/pdf">`;
+      } else {
+        pane.innerHTML = `<div class="doc-preview-placeholder"><i data-ic="file"></i><p>No preview available for this file type.</p></div>`;
+      }
     } else {
-      pane.innerHTML = `<div class="doc-preview-placeholder"><i data-ic="file"></i><p>No preview available for this file type.</p></div>`;
+      pane.innerHTML = `<div class="doc-preview-placeholder"><i data-ic="file"></i><p>Original file isn't available on this device.</p></div>`;
     }
     renderIcons(pane);
 
     document.getElementById('editName').value = doc.name || '';
-    document.getElementById('editRRR').value = doc.rrr || '';
+    document.getElementById('editReferenceType').value = doc.referenceType || 'RRR';
+    document.getElementById('editReferenceNumber').value = doc.referenceNumber || '';
     document.getElementById('editAmount').value = doc.amount || '';
     document.getElementById('editDate').value = doc.date || '';
     document.getElementById('editCategory').value = doc.category || 'Receipt';
@@ -665,10 +1004,25 @@ const DocModal = {
     document.getElementById('editSemester').value = doc.semester || 'First';
     document.getElementById('editCourse').value = doc.course || '';
 
+    const metaLine = document.getElementById('docModalMeta');
+    if (metaLine) {
+      const uploaded = doc.uploadedAt ? new Date(doc.uploadedAt).toLocaleDateString() : '\u2014';
+      const modified = doc.modifiedAt ? new Date(doc.modifiedAt).toLocaleDateString() : uploaded;
+      metaLine.textContent = `${doc.size ? formatFileSize(doc.size) : 'Unknown size'} \u00b7 Uploaded ${uploaded} \u00b7 Modified ${modified}`;
+    }
+
+    const downloadBtn = document.getElementById('downloadDocBtn');
+    if (downloadBtn) downloadBtn.classList.toggle('hidden', !doc.hasFile);
+
     const ocrBox = document.getElementById('ocrTextBox');
-    if (doc.ocrText) {
+    if (doc.ocrStatus === 'done' && doc.ocrText) {
       ocrBox.classList.remove('hidden');
       document.getElementById('ocrTextContent').textContent = doc.ocrText;
+      document.getElementById('ocrStatusLabel').textContent = 'Text detected on scan';
+    } else if (doc.ocrStatus === 'failed') {
+      ocrBox.classList.remove('hidden');
+      document.getElementById('ocrTextContent').textContent = 'Scan didn\u2019t return readable text. You can fill in the fields above manually.';
+      document.getElementById('ocrStatusLabel').textContent = 'Scan unavailable';
     } else {
       ocrBox.classList.add('hidden');
     }
@@ -689,16 +1043,23 @@ const DocModal = {
     docs[idx] = {
       ...docs[idx],
       name: document.getElementById('editName').value.trim() || 'Untitled document',
-      rrr: document.getElementById('editRRR').value.trim(),
+      referenceType: document.getElementById('editReferenceType').value,
+      referenceNumber: document.getElementById('editReferenceNumber').value.trim(),
       amount: Number(document.getElementById('editAmount').value) || 0,
       date: document.getElementById('editDate').value,
       category: document.getElementById('editCategory').value,
       level: document.getElementById('editLevel').value,
       semester: document.getElementById('editSemester').value,
-      course: document.getElementById('editCourse').value.trim()
+      course: document.getElementById('editCourse').value.trim(),
+      modifiedAt: new Date().toISOString()
     };
 
-    await DB.saveDocuments(user.id, docs);
+    try {
+      await DB.saveDocuments(user.id, docs);
+    } catch (err) {
+      UI.toast(err.message || 'Could not save changes');
+      return;
+    }
     this.close();
     UI.toast('Document updated');
     await Views.filterDocuments();
@@ -708,14 +1069,32 @@ const DocModal = {
   async delete() {
     if (!this.currentId) return;
     if (!confirm('Delete this document? This cannot be undone.')) return;
+    const id = this.currentId;
     const user = await Auth.currentUser();
     let docs = await DB.getDocuments(user.id);
-    docs = docs.filter(d => d.id !== this.currentId);
-    await DB.saveDocuments(user.id, docs);
+    docs = docs.filter(d => d.id !== id);
+    try {
+      await DB.saveDocuments(user.id, docs);
+    } catch (err) {
+      UI.toast(err.message || 'Could not delete document');
+      return;
+    }
+    await FileStore.delete(id).catch(() => {});
     this.close();
     UI.toast('Document deleted');
     await Views.filterDocuments();
     if (currentRoute() === 'dashboard') await Views.renderDashboard();
+  },
+
+  async download() {
+    if (!this.currentId) return;
+    const user = await Auth.currentUser();
+    const docs = await DB.getDocuments(user.id);
+    const doc = docs.find(d => d.id === this.currentId);
+    if (!doc || !doc.hasFile) { UI.toast('Original file isn\u2019t available on this device'); return; }
+    const url = await FileStore.getObjectURL(doc.id).catch(() => null);
+    if (!url) { UI.toast('Could not load the file'); return; }
+    triggerDownload(url, downloadFilename(doc));
   },
 
   async print() {
@@ -724,7 +1103,7 @@ const DocModal = {
     const docs = await DB.getDocuments(user.id);
     const doc = docs.find(d => d.id === this.currentId);
     if (!doc) return;
-    Documents.renderPrintArea(doc);
+    await Documents.renderPrintArea(doc);
     window.print();
   }
 };
@@ -746,12 +1125,22 @@ const Documents = {
 
     document.getElementById('compileBtn').addEventListener('click', () => this.compileClearance());
 
-    ['fLevel', 'fSemester', 'fCategory', 'globalSearch'].forEach(id => {
-      document.getElementById(id).addEventListener('input', () => Views.filterDocuments());
+    ['fLevel', 'fSemester', 'fCategory', 'globalSearch', 'docSort'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('input', () => Views.filterDocuments());
     });
     ['ceLevel', 'ceSemester'].forEach(id => {
       document.getElementById(id).addEventListener('change', () => Views.renderClearance());
     });
+
+    const selectAll = document.getElementById('selectAllDocs');
+    if (selectAll) selectAll.addEventListener('change', () => Vault.selectAll(selectAll.checked));
+    const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+    if (bulkDeleteBtn) bulkDeleteBtn.addEventListener('click', () => Vault.bulkDelete());
+    const bulkDownloadBtn = document.getElementById('bulkDownloadBtn');
+    if (bulkDownloadBtn) bulkDownloadBtn.addEventListener('click', () => Vault.bulkDownload());
+    const bulkClearBtn = document.getElementById('bulkClearBtn');
+    if (bulkClearBtn) bulkClearBtn.addEventListener('click', () => { Vault.resetSelection(); Views.filterDocuments(); });
 
     document.getElementById('generatePinBtn').addEventListener('click', () => this.generatePinForSelected());
     document.getElementById('copyPinLinkBtn').addEventListener('click', () => this.copyPinLink());
@@ -763,55 +1152,123 @@ const Documents = {
     const files = Array.from(fileList);
     const settings = await DB.getSettings(user.id);
     const profile = await DB.getProfile(user.id);
+    const limits = Plans.limits(user);
+    const maxFileBytes = (CONFIG.upload.maxFileSizeMB || 10) * 1024 * 1024;
+    const quotaBytes = limits.maxStorageMB ? limits.maxStorageMB * 1024 * 1024 : Infinity;
 
     const queuePanel = document.getElementById('uploadQueue');
     const queueList = document.getElementById('uploadQueueList');
     queuePanel.classList.remove('hidden');
-    queueList.innerHTML = files.map((f, i) => `<div class="queue-item" id="queueItem${i}"><span>${f.name}</span><span class="queue-status">Reading\u2026</span></div>`).join('');
+    queueList.innerHTML = files.map((f, i) =>
+      `<div class="queue-item" id="queueItem${i}"><span>${escapeHTML(f.name)}</span><span class="queue-status">Waiting\u2026</span></div>`
+    ).join('');
 
     const docs = await DB.getDocuments(user.id);
+    let usedBytes = docs.reduce((s, d) => s + (d.size || 0), 0);
+    let docCount = docs.length;
+    let addedCount = 0, rejectedCount = 0;
+    const newIds = [];
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const statusEl = document.querySelector(`#queueItem${i} .queue-status`);
-      const isImage = file.type.startsWith('image/');
-      let fileData = null;
-      try { fileData = await fileToDataURL(file); } catch (e) { /* ignore */ }
+      const setStatus = (text, cls) => {
+        if (!statusEl) return;
+        statusEl.textContent = text;
+        statusEl.className = 'queue-status' + (cls ? ' ' + cls : '');
+      };
 
-      let ocrText = '', rrr = '', amount = '', date = '';
-      if (isImage && settings.ocrAutofill && typeof Tesseract !== 'undefined' && fileData) {
-        if (statusEl) statusEl.textContent = 'Scanning\u2026';
-        try {
-          const { data } = await Tesseract.recognize(fileData, 'eng');
-          ocrText = (data.text || '').trim();
-          const rrrMatch = ocrText.match(/\b(\d{4}[\s-]?\d{4}[\s-]?\d{3,4})\b/);
-          const amountMatch = ocrText.match(/(?:\u20a6|N|NGN)\s?([\d,]{3,12})/i);
-          const dateMatch = ocrText.match(/\b(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})\b/);
-          if (rrrMatch) rrr = rrrMatch[1];
-          if (amountMatch) amount = amountMatch[1].replace(/,/g, '');
-          if (dateMatch) date = this.normalizeDate(dateMatch[1]);
-        } catch (e) { /* OCR failed silently, still keep the file */ }
+      const extOk = CONFIG.upload.acceptedExtensions.some(ext => file.name.toLowerCase().endsWith(ext));
+      const typeOk = CONFIG.upload.acceptedTypes.includes(file.type);
+      if (!typeOk && !extOk) { setStatus('Rejected — only PDF, JPG or PNG', 'status-error'); rejectedCount++; continue; }
+
+      if (file.size > maxFileBytes) { setStatus(`Rejected — over ${CONFIG.upload.maxFileSizeMB}MB`, 'status-error'); rejectedCount++; continue; }
+      if (file.size === 0) { setStatus('Rejected — file is empty', 'status-error'); rejectedCount++; continue; }
+
+      if (limits.maxDocuments && docCount >= limits.maxDocuments) {
+        setStatus(`Rejected — ${limits.maxDocuments}-document limit reached`, 'status-error'); rejectedCount++; continue;
+      }
+      if (usedBytes + file.size > quotaBytes) {
+        setStatus('Rejected — not enough storage left', 'status-error'); rejectedCount++; continue;
       }
 
-      const doc = {
-        id: 'd_' + Date.now().toString(36) + i,
+      const id = 'd_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+      setStatus('Saving\u2026');
+      try {
+        await FileStore.put(id, file);
+      } catch (e) {
+        setStatus('Rejected — could not save file', 'status-error'); rejectedCount++; continue;
+      }
+
+      const isImage = file.type.startsWith('image/');
+      let ocrText = '', referenceNumber = '', amount = '', date = '', ocrStatus = 'skipped';
+      if (isImage && settings.ocrAutofill && typeof Tesseract !== 'undefined') {
+        setStatus('Scanning\u2026');
+        try {
+          const { data } = await Tesseract.recognize(file, 'eng');
+          ocrText = (data.text || '').trim();
+          ocrStatus = ocrText ? 'done' : 'failed';
+          const refMatch = ocrText.match(/\b(\d{4}[\s-]?\d{4}[\s-]?\d{3,4})\b/);
+          const amountMatch = ocrText.match(/(?:\u20a6|N|NGN)\s?([\d,]{3,12})/i);
+          const dateMatch = ocrText.match(/\b(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})\b/);
+          if (refMatch) referenceNumber = refMatch[1];
+          if (amountMatch) amount = amountMatch[1].replace(/,/g, '');
+          if (dateMatch) date = this.normalizeDate(dateMatch[1]);
+        } catch (e) { ocrStatus = 'failed'; }
+      }
+
+      const now = new Date().toISOString();
+      docs.unshift({
+        id,
         name: file.name.replace(/\.[^.]+$/, ''),
         category: 'Receipt',
-        level: profile.level || '100L',
+        level: profile.level || CONFIG.levels[0],
         semester: CONFIG.semesters[0],
         course: '',
-        rrr, amount: Number(amount) || 0, date,
-        fileData, fileType: file.type, ocrText
-      };
-      docs.unshift(doc);
-      if (statusEl) statusEl.textContent = 'Saved';
+        referenceType: 'RRR',
+        referenceNumber,
+        amount: Number(amount) || 0,
+        date,
+        size: file.size,
+        fileType: file.type,
+        uploadedAt: now,
+        modifiedAt: now,
+        hasFile: true,
+        ocrText,
+        ocrStatus
+      });
+      newIds.push(id);
+      usedBytes += file.size;
+      docCount++;
+      addedCount++;
+      setStatus('Saved', 'status-ok');
     }
 
-    await DB.saveDocuments(user.id, docs);
-    UI.toast(`${files.length} file${files.length === 1 ? '' : 's'} added to your vault`);
-    setTimeout(() => { queuePanel.classList.add('hidden'); queueList.innerHTML = ''; }, 900);
-    window.location.hash = '#documents';
+    let saveFailed = false;
+    if (addedCount) {
+      try {
+        await DB.saveDocuments(user.id, docs);
+      } catch (e) {
+        saveFailed = true;
+        await Promise.all(newIds.map(id => FileStore.delete(id).catch(() => {})));
+        UI.toast(e.message || 'Could not save — local storage may be full. Nothing was added.');
+      }
+    }
+
+    if (!saveFailed) {
+      if (addedCount && rejectedCount) UI.toast(`${addedCount} file${addedCount === 1 ? '' : 's'} added, ${rejectedCount} rejected — see details below`);
+      else if (addedCount) UI.toast(`${addedCount} file${addedCount === 1 ? '' : 's'} added to your vault`);
+      else if (rejectedCount) UI.toast(`No files added — ${rejectedCount} rejected. See details below.`);
+    }
+
+    const keepQueueVisible = rejectedCount > 0 || saveFailed;
+    if (!keepQueueVisible) {
+      setTimeout(() => { queuePanel.classList.add('hidden'); queueList.innerHTML = ''; }, 900);
+    }
+    if (addedCount && !saveFailed) window.location.hash = '#documents';
     await Views.filterDocuments();
+    if (currentRoute() === 'dashboard') await Views.renderDashboard();
+    if (currentRoute() === 'upload') await Views.renderUploadCapacity();
   },
 
   normalizeDate(str) {
@@ -824,15 +1281,20 @@ const Documents = {
 
   openPreview(id) { DocModal.open(id); },
 
-  renderPrintArea(doc) {
+  async renderPrintArea(doc) {
     const cat = Views.categoryMeta(doc.category);
+    let imgHTML = '';
+    if (doc.hasFile && (doc.fileType || '').startsWith('image/')) {
+      const url = await FileStore.getObjectURL(doc.id).catch(() => null);
+      if (url) imgHTML = `<img src="${url}" style="max-width:100%;margin-top:12px;">`;
+    }
     document.getElementById('printArea').innerHTML = `
-      <h1>${doc.name}</h1>
-      <p>${cat.label} &middot; ${doc.level} &middot; ${doc.semester} semester${doc.course ? ' &middot; ' + doc.course : ''}</p>
-      <p>RRR: ${doc.rrr || '\u2014'}</p>
+      <h1>${escapeHTML(doc.name)}</h1>
+      <p>${cat.label} &middot; ${doc.level} &middot; ${doc.semester} semester${doc.course ? ' &middot; ' + escapeHTML(doc.course) : ''}</p>
+      <p>${escapeHTML(doc.referenceType || 'Reference')}: ${escapeHTML(doc.referenceNumber) || '\u2014'}</p>
       <p>Amount: ${doc.amount ? '\u20a6' + Number(doc.amount).toLocaleString() : '\u2014'}</p>
       <p>Date: ${doc.date || '\u2014'}</p>
-      ${doc.fileData && (doc.fileType || '').startsWith('image/') ? `<img src="${doc.fileData}" style="max-width:100%;margin-top:12px;">` : ''}`;
+      ${imgHTML}`;
   },
 
   async generatePinForSelected() {
@@ -890,7 +1352,7 @@ const Documents = {
       pdf.text(`${i + 1}. ${d.name}`, 14, y);
       pdf.setFontSize(9);
       pdf.text(`${d.level} \u00b7 ${d.semester} semester${d.course ? ' \u00b7 ' + d.course : ''}`, 14, y + 6);
-      pdf.text(`RRR: ${d.rrr || '\u2014'}    Amount: ${d.amount ? '\u20a6' + d.amount.toLocaleString() : '\u2014'}    Date: ${d.date || '\u2014'}`, 14, y + 12);
+      pdf.text(`${d.referenceType || 'Reference'}: ${d.referenceNumber || '\u2014'}    Amount: ${d.amount ? '\u20a6' + d.amount.toLocaleString() : '\u2014'}    Date: ${d.date || '\u2014'}`, 14, y + 12);
       y += 22;
     });
 
@@ -916,11 +1378,11 @@ const CafePrint = {
     const doc = entry.doc;
     const cat = Views.categoryMeta(doc.category);
     document.getElementById('cafeDocPreview').innerHTML = `
-      <h3>${doc.name}</h3>
-      <p>${cat.label} &middot; ${doc.level} &middot; ${doc.semester} semester${doc.course ? ' &middot; ' + doc.course : ''}</p>
-      <p>RRR: ${doc.rrr || '\u2014'}</p>
+      <h3>${escapeHTML(doc.name)}</h3>
+      <p>${cat.label} &middot; ${doc.level} &middot; ${doc.semester} semester${doc.course ? ' &middot; ' + escapeHTML(doc.course) : ''}</p>
+      <p>${escapeHTML(doc.referenceType || 'Reference')}: ${escapeHTML(doc.referenceNumber) || '\u2014'}</p>
       <p>Amount: ${doc.amount ? '\u20a6' + Number(doc.amount).toLocaleString() : '\u2014'}</p>`;
-    Documents.renderPrintArea(doc);
+    await Documents.renderPrintArea(doc);
     document.getElementById('cafeResult').classList.remove('hidden');
   }
 };
@@ -1017,6 +1479,7 @@ function initDocModal() {
   document.getElementById('docEditForm').addEventListener('submit', e => DocModal.save(e));
   document.getElementById('deleteDocBtn').addEventListener('click', () => DocModal.delete());
   document.getElementById('printDocBtn').addEventListener('click', () => DocModal.print());
+  document.getElementById('downloadDocBtn').addEventListener('click', () => DocModal.download());
 }
 
 function initAppShellChrome() {
