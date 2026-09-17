@@ -242,6 +242,7 @@
       <form class="doc-edit-pane" id="docEditForm" novalidate>
         <label class="field"><span>Document name</span><input type="text" id="editName" required></label>
         <p class="doc-modal-meta" id="docModalMeta"></p>
+        <p class="doc-detected-info hidden" id="docDetectedInfo"></p>
         <div class="field-row">
           <label class="field"><span>Reference type</span><select id="editReferenceType"></select></label>
           <label class="field"><span>Reference number</span><input type="text" id="editReferenceNumber"></label>
@@ -260,7 +261,13 @@
         </div>
 
         <div class="ocr-text-box hidden" id="ocrTextBox">
-          <span class="field-label" id="ocrStatusLabel">Text detected on scan</span>
+          <div class="ocr-text-head">
+            <span class="field-label" id="ocrStatusLabel">Text detected on scan</span>
+            <div class="ocr-text-actions">
+              <button type="button" class="link-btn hidden" id="copyOcrTextBtn">Copy text</button>
+              <button type="button" class="link-btn hidden" id="rerunOcrBtn">Rerun OCR</button>
+            </div>
+          </div>
           <p id="ocrTextContent"></p>
         </div>
 
@@ -287,7 +294,7 @@
       <a class="nav-item" href="#dashboard" data-route="dashboard"><i data-ic="home"></i>Dashboard</a>
       <a class="nav-item" href="#documents" data-route="documents"><i data-ic="folder"></i>My Documents</a>
       <a class="nav-item" href="#upload" data-route="upload"><i data-ic="upload"></i>Scan &amp; Upload</a>
-      <a class="nav-item" href="#clearance" data-route="clearance"><i data-ic="stack"></i>Clearance Export</a>
+      <a class="nav-item" href="#clearance" data-route="clearance"><i data-ic="stack"></i>Clearance</a>
       <a class="nav-item" href="#cafepin" data-route="cafepin"><i data-ic="pin"></i>Cafe Quick-Print</a>
       <a class="nav-item" href="#profile" data-route="profile"><i data-ic="user"></i>Profile</a>
       <a class="nav-item" href="#settings" data-route="settings"><i data-ic="gear"></i>Settings</a>
@@ -422,11 +429,11 @@
       </div>
     </section>
 
-    <!-- ---- CLEARANCE EXPORT ---- -->
+    <!-- ---- CLEARANCE ---- -->
     <section class="view" id="view-clearance" hidden>
       <div class="view-head">
-        <h1>Clearance Export</h1>
-        <p class="view-sub">Pick a semester's receipts and compile one clean PDF for submission.</p>
+        <h1>Clearance</h1>
+        <p class="view-sub">See what's still missing, then compile a submission-ready packet from documents already in your vault.</p>
       </div>
 
       <div class="filter-row">
@@ -434,12 +441,29 @@
         <select id="ceSemester"><option value="">All semesters</option></select>
       </div>
 
-      <div class="panel">
+      <div class="panel requirements-panel">
+        <div class="section-head">
+          <h3>Requirements</h3>
+          <span id="reqPct" class="muted">0% complete</span>
+        </div>
+        <div class="storage-bar"><div class="storage-bar-fill" id="reqBarFill"></div></div>
+        <div id="requirementsList" class="requirements-list"></div>
+      </div>
+
+      <div class="panel" style="margin-top:14px;">
         <div class="section-head">
           <h3>Select documents to include</h3>
           <span id="ceCount" class="muted">0 selected</span>
         </div>
         <div class="check-list" id="clearanceList"></div>
+      </div>
+
+      <div class="panel packet-order-panel hidden" id="packetOrderPanel" style="margin-top:14px;">
+        <div class="section-head">
+          <h3>Packet order</h3>
+          <span class="muted">Use the arrows to reorder</span>
+        </div>
+        <div id="packetOrderList"></div>
       </div>
 
       <button class="btn btn-primary btn-lg" id="compileBtn" type="button" style="margin-top:16px;"><i data-ic="stack"></i>Compile packet</button>
@@ -623,6 +647,7 @@
   <div id="printArea" class="print-area"></div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="script.js"></script>

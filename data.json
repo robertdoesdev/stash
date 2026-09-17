@@ -5,8 +5,8 @@
     "cafePinExpiryMinutes": 10
   },
   "plans": {
-    "free": { "label": "Free", "maxDocuments": 50, "maxStorageMB": 2048 },
-    "pro": { "label": "Pro", "maxDocuments": null, "maxStorageMB": 20480 }
+    "free": { "label": "Free", "maxDocuments": 50, "maxStorageMB": 2048, "ocrPerDay": 5 },
+    "pro": { "label": "Pro", "maxDocuments": null, "maxStorageMB": 20480, "ocrPerDay": null }
   },
   "upload": {
     "maxFileSizeMB": 10,
@@ -14,9 +14,57 @@
     "acceptedExtensions": [".pdf", ".jpg", ".jpeg", ".png"]
   },
   "categories": [
-    { "id": "Receipt", "label": "Receipt", "badge": "RCT", "color": "accent" },
-    { "id": "Docket", "label": "Docket", "badge": "DKT", "color": "accent-2" },
-    { "id": "Admin", "label": "Admin", "badge": "ADM", "color": "accent-3" }
+    { "id": "Receipt", "label": "Receipt", "badge": "RCT", "color": "accent", "keywords": ["receipt", "payment", "paid", "invoice", "fee", "fees", "transaction", "amount paid"] },
+    { "id": "Docket", "label": "Docket", "badge": "DKT", "color": "accent-2", "keywords": ["docket", "slip", "confirmation", "acknowledgement", "registration", "enrolment", "enrollment"] },
+    { "id": "Admin", "label": "Admin", "badge": "ADM", "color": "accent-3", "keywords": ["admission", "clearance", "transcript", "certificate", "letter", "matriculation"] }
+  ],
+  "extraction": {
+    "institutionMarkers": ["university", "polytechnic", "college", "institute", "school of"],
+    "referenceKeywords": [
+      { "match": "rrr", "type": "RRR" },
+      { "match": "receipt no", "type": "Receipt No." },
+      { "match": "receipt number", "type": "Receipt No." },
+      { "match": "invoice no", "type": "Invoice No." },
+      { "match": "invoice number", "type": "Invoice No." },
+      { "match": "transaction id", "type": "Reference No." },
+      { "match": "reference no", "type": "Reference No." },
+      { "match": "reference number", "type": "Reference No." },
+      { "match": "ref no", "type": "Reference No." }
+    ],
+    "studentIdKeywords": ["matric no", "matriculation number", "matric number", "student id", "reg no", "registration number", "id no"],
+    "semesterKeywords": {
+      "First": ["first semester", "1st semester", "semester one", "semester 1", "fall semester"],
+      "Second": ["second semester", "2nd semester", "semester two", "semester 2", "spring semester"]
+    }
+  },
+  "clearanceRequirements": [
+    {
+      "id": "req_fees",
+      "name": "Tuition / School Fees Receipt",
+      "description": "Proof of tuition payment for the semester.",
+      "category": "Receipt",
+      "level": "",
+      "semester": "",
+      "keywords": ["tuition", "school fees", "fees receipt", "fee payment"]
+    },
+    {
+      "id": "req_admission",
+      "name": "Admission / Matriculation Letter",
+      "description": "Official admission or matriculation letter.",
+      "category": "Admin",
+      "level": "",
+      "semester": "",
+      "keywords": ["admission", "matriculation", "offer of admission"]
+    },
+    {
+      "id": "req_registration",
+      "name": "Registration Confirmation",
+      "description": "Proof of course registration for the semester.",
+      "category": "Docket",
+      "level": "",
+      "semester": "",
+      "keywords": ["registration", "enrolment", "enrollment", "course form"]
+    }
   ],
   "levels": ["100L", "200L", "300L", "400L", "500L"],
   "semesters": ["First", "Second"],
@@ -37,7 +85,11 @@
     "uploadedAt": "",
     "modifiedAt": "",
     "ocrText": "",
-    "ocrStatus": "skipped"
+    "ocrStatus": "skipped",
+    "textSource": "none",
+    "institution": "",
+    "extractedStudentId": "",
+    "academicSession": ""
   },
   "profileSchema": {
     "name": "",

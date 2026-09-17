@@ -41,8 +41,8 @@ async function loadConfig() {
     CONFIG = {
       app: { name: 'Stash', tagline: 'Your school papers, sorted', cafePinExpiryMinutes: 10 },
       plans: {
-        free: { label: 'Free', maxDocuments: 50, maxStorageMB: 2048 },
-        pro: { label: 'Pro', maxDocuments: null, maxStorageMB: 20480 }
+        free: { label: 'Free', maxDocuments: 50, maxStorageMB: 2048, ocrPerDay: 5 },
+        pro: { label: 'Pro', maxDocuments: null, maxStorageMB: 20480, ocrPerDay: null }
       },
       upload: {
         maxFileSizeMB: 10,
@@ -50,13 +50,20 @@ async function loadConfig() {
         acceptedExtensions: ['.pdf', '.jpg', '.jpeg', '.png']
       },
       categories: [
-        { id: 'Receipt', label: 'Receipt', badge: 'RCT', color: 'accent' },
-        { id: 'Docket', label: 'Docket', badge: 'DKT', color: 'accent-2' },
-        { id: 'Admin', label: 'Admin', badge: 'ADM', color: 'accent-3' }
+        { id: 'Receipt', label: 'Receipt', badge: 'RCT', color: 'accent', keywords: ['receipt', 'payment', 'paid', 'invoice', 'fee'] },
+        { id: 'Docket', label: 'Docket', badge: 'DKT', color: 'accent-2', keywords: ['docket', 'slip', 'registration'] },
+        { id: 'Admin', label: 'Admin', badge: 'ADM', color: 'accent-3', keywords: ['admission', 'clearance', 'transcript'] }
       ],
       levels: ['100L', '200L', '300L', '400L', '500L'],
       semesters: ['First', 'Second'],
       referenceTypes: ['RRR', 'Receipt No.', 'Invoice No.', 'Reference No.', 'Other'],
+      extraction: {
+        institutionMarkers: ['university', 'polytechnic', 'college', 'institute'],
+        referenceKeywords: [{ match: 'reference no', type: 'Reference No.' }],
+        studentIdKeywords: ['matric no', 'student id', 'reg no'],
+        semesterKeywords: { First: ['first semester'], Second: ['second semester'] }
+      },
+      clearanceRequirements: [],
       defaultProfile: { name: '', matric: '', email: '', department: '', level: '100L', avatar: null },
       defaultSettings: { theme: 'dark', offlineAccess: true, ocrAutofill: true },
       pricingPlans: [],
@@ -146,6 +153,182 @@ const Plans = {
   limits(user) {
     const id = this.of(user);
     return CONFIG.plans[id] || CONFIG.plans.free;
+  },
+  ocrPerDay(user) { return this.limits(user).ocrPerDay; }
+};
+
+/* =========================================================
+   DOCUMENT CONTENT EXTRACTION
+   Pulls real, searchable text out of an uploaded file (native PDF
+   text first, OCR only when there's no text layer), then applies
+   deterministic pattern-matching — no AI, no guessing — to surface
+   metadata like amount, date, reference number, institution, etc.
+   Anything that isn't confidently found is left blank rather than
+   invented.
+   ========================================================= */
+if (typeof pdfjsLib !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+
+const PDF_MIN_TEXT_LENGTH = 25; // below this, treat the PDF as having no usable text layer
+
+async function extractPdfText(file) {
+  if (typeof pdfjsLib === 'undefined') return { text: '', pdf: null };
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  let text = '';
+  const pageCount = Math.min(pdf.numPages, 15); // cap for performance on huge files
+  for (let i = 1; i <= pageCount; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    text += content.items.map(it => it.str).join(' ') + '\n';
+  }
+  return { text: text.trim(), pdf };
+}
+
+async function ocrPdfFirstPage(pdf) {
+  const page = await pdf.getPage(1);
+  const viewport = page.getViewport({ scale: 2 });
+  const canvas = document.createElement('canvas');
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+  const { data } = await Tesseract.recognize(canvas, 'eng');
+  return (data.text || '').trim();
+}
+
+const Extractor = {
+  // Finds a currency amount. Prefers a symbol/code-prefixed number (most
+  // reliable); falls back to a number that follows a word like "amount"
+  // or "total". Returns '' if nothing reasonably confident is found.
+  findAmount(text) {
+    const symbolMatch = text.match(/(?:\u20a6|N|NGN|\$|USD|\u00a3|GBP|\u20ac|EUR)\s?([\d,]{3,12}(?:\.\d{1,2})?)/i);
+    if (symbolMatch) return symbolMatch[1].replace(/,/g, '');
+    const wordMatch = text.match(/(?:amount|total|sum paid|amount paid|fee)s?\s*[:\-]?\s*(?:\u20a6|N|\$|\u00a3|\u20ac)?\s?([\d,]{3,12}(?:\.\d{1,2})?)/i);
+    if (wordMatch) return wordMatch[1].replace(/,/g, '');
+    return '';
+  },
+
+  // Finds a date and normalizes it to yyyy-mm-dd. Supports numeric
+  // (dd/mm/yyyy, yyyy-mm-dd) and "5 March 2024" / "March 5, 2024" forms.
+  findDate(text) {
+    const months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+    const monthWordMatch = text.match(/\b(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{4})\b/i)
+      || text.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{1,2}),?\s+(\d{4})\b/i);
+    if (monthWordMatch) {
+      let day, monthWord, year;
+      if (/^\d/.test(monthWordMatch[0])) { [, day, monthWord, year] = monthWordMatch; }
+      else { [, monthWord, day, year] = monthWordMatch; }
+      const mIdx = months.findIndex(m => m.startsWith(monthWord.toLowerCase().slice(0, 3)));
+      if (mIdx > -1) return `${year}-${String(mIdx + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+    const isoMatch = text.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);
+    if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+    const numericMatch = text.match(/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\b/);
+    if (numericMatch) {
+      let [, a, b, y] = numericMatch;
+      if (y.length === 2) y = '20' + y;
+      return `${y}-${String(b).padStart(2, '0')}-${String(a).padStart(2, '0')}`;
+    }
+    return '';
+  },
+
+  // Keyword-anchored reference number (e.g. "Receipt No: ABC12345").
+  // Falls back to an RRR-shaped grouped-digit string, since that's a
+  // distinctive enough format to trust without a keyword nearby.
+  findReference(text, config) {
+    const lower = text.toLowerCase();
+    for (const { match, type } of (config.referenceKeywords || [])) {
+      const idx = lower.indexOf(match);
+      if (idx === -1) continue;
+      const after = text.slice(idx + match.length, idx + match.length + 40);
+      const codeMatch = after.match(/[:\-\s]*([A-Za-z0-9\/\-]{5,20})/);
+      if (codeMatch && /\d/.test(codeMatch[1])) return { referenceNumber: codeMatch[1].trim(), referenceType: type };
+    }
+    const rrrMatch = text.match(/\b(\d{4}[\s-]?\d{4}[\s-]?\d{3,4})\b/);
+    if (rrrMatch) return { referenceNumber: rrrMatch[1], referenceType: 'RRR' };
+    return { referenceNumber: '', referenceType: '' };
+  },
+
+  findInstitution(text, markers) {
+    const lines = text.split(/\n|(?<=\.)\s+/).map(l => l.trim()).filter(Boolean);
+    const lower = markers.map(m => m.toLowerCase());
+    const hit = lines.find(line => lower.some(m => line.toLowerCase().includes(m)));
+    return hit ? hit.slice(0, 80) : '';
+  },
+
+  findStudentId(text, keywords) {
+    const lower = text.toLowerCase();
+    for (const kw of keywords) {
+      const idx = lower.indexOf(kw);
+      if (idx === -1) continue;
+      const after = text.slice(idx + kw.length, idx + kw.length + 30);
+      const codeMatch = after.match(/[:\-\s]*([A-Za-z0-9\/\-]{4,20})/);
+      if (codeMatch) return codeMatch[1].trim();
+    }
+    return '';
+  },
+
+  findAcademicSession(text) {
+    const m = text.match(/\b(20\d{2})\s?[\/\-]\s?(20\d{2})\b/);
+    return m ? `${m[1]}/${m[2]}` : '';
+  },
+
+  findSemester(text, semesterKeywords) {
+    const lower = text.toLowerCase();
+    for (const [semester, phrases] of Object.entries(semesterKeywords || {})) {
+      if (phrases.some(p => lower.includes(p))) return semester;
+    }
+    return '';
+  },
+
+  findLevel(text, levels) {
+    for (const lvl of levels) {
+      const digits = String(lvl).match(/\d+/);
+      if (digits) {
+        const re = new RegExp(`\\b${digits[0]}\\s?(?:level|l)\\b`, 'i');
+        if (re.test(text)) return lvl;
+      } else if (text.toLowerCase().includes(String(lvl).toLowerCase())) {
+        return lvl;
+      }
+    }
+    const yearMatch = text.match(/\b(?:year|level)\s?(\d)\b/i);
+    if (yearMatch) {
+      const idx = Number(yearMatch[1]) - 1;
+      if (levels[idx]) return levels[idx];
+    }
+    return '';
+  },
+
+  guessCategory(text, categories) {
+    const lower = text.toLowerCase();
+    let best = null, bestScore = 0;
+    categories.forEach(cat => {
+      const score = (cat.keywords || []).reduce((s, k) => s + (lower.includes(k.toLowerCase()) ? 1 : 0), 0);
+      if (score > bestScore) { best = cat.id; bestScore = score; }
+    });
+    return bestScore > 0 ? best : '';
+  },
+
+  // Runs every extractor against a block of text and returns only the
+  // fields it found reasonable evidence for. Anything not found comes
+  // back as '' rather than a guess.
+  analyze(text) {
+    if (!text || !text.trim()) return {};
+    const cfg = CONFIG.extraction || {};
+    const ref = this.findReference(text, cfg);
+    return {
+      amount: this.findAmount(text),
+      date: this.findDate(text),
+      referenceNumber: ref.referenceNumber,
+      referenceType: ref.referenceType,
+      institution: this.findInstitution(text, cfg.institutionMarkers || []),
+      studentId: this.findStudentId(text, cfg.studentIdKeywords || []),
+      academicSession: this.findAcademicSession(text),
+      semester: this.findSemester(text, cfg.semesterKeywords || {}),
+      level: this.findLevel(text, CONFIG.levels || []),
+      category: this.guessCategory(text, CONFIG.categories || [])
+    };
   }
 };
 
@@ -283,6 +466,27 @@ const DB = {
     users[userId].settings = settings;
     await this.saveUsers(users);
     return settings;
+  },
+
+  todayKey() { return new Date().toISOString().slice(0, 10); },
+
+  // Usage is tracked per calendar day and rolls over automatically —
+  // if the stored date isn't today, the count is treated as 0.
+  async usageToday(userId, kind) {
+    const users = await this.getUsers();
+    const usage = users[userId] && users[userId].usage && users[userId].usage[kind];
+    if (!usage || usage.date !== this.todayKey()) return 0;
+    return usage.count || 0;
+  },
+  async incrementUsage(userId, kind) {
+    const users = await this.getUsers();
+    if (!users[userId]) return 0;
+    const today = this.todayKey();
+    const current = users[userId].usage && users[userId].usage[kind];
+    const count = (current && current.date === today) ? current.count + 1 : 1;
+    users[userId].usage = { ...(users[userId].usage || {}), [kind]: { date: today, count } };
+    await this.saveUsers(users);
+    return count;
   },
 
   getSession() {
@@ -641,6 +845,18 @@ const Views = {
     await this.filterDocuments();
   },
 
+  // Shared by search and the Clearance Assistant, so "what counts as
+  // evidence for this document" is defined in exactly one place.
+  buildHaystack(d) {
+    const catLabel = this.categoryMeta(d.category).label;
+    return [
+      d.name, d.course, d.category, catLabel, d.referenceNumber, d.referenceType,
+      d.amount ? String(d.amount) : '', d.amount ? Number(d.amount).toLocaleString() : '',
+      d.date, d.uploadedAt ? d.uploadedAt.slice(0, 10) : '',
+      d.level, d.semester, d.ocrText, d.institution, d.extractedStudentId, d.academicSession
+    ].filter(Boolean).join(' ').toLowerCase();
+  },
+
   async filterDocuments() {
     const user = await Auth.currentUser();
     if (!user) return;
@@ -657,13 +873,7 @@ const Views = {
       if (sem && d.semester !== sem) return false;
       if (cat && d.category !== cat) return false;
       if (!q) return true;
-      const catLabel = this.categoryMeta(d.category).label;
-      const haystack = [
-        d.name, d.course, d.category, catLabel, d.referenceNumber, d.referenceType,
-        d.amount ? String(d.amount) : '', d.date, d.uploadedAt ? d.uploadedAt.slice(0, 10) : '',
-        d.level, d.semester, d.ocrText
-      ].filter(Boolean).join(' ').toLowerCase();
-      return haystack.includes(q);
+      return this.buildHaystack(d).includes(q);
     });
 
     const sorters = {
@@ -743,23 +953,51 @@ const Views = {
     const sem = document.getElementById('ceSemester').value;
     const user = await Auth.currentUser();
     const docs = await DB.getDocuments(user.id);
-    const list = docs.filter(d => d.category === 'Receipt' && (!level || d.level === level) && (!sem || d.semester === sem));
 
-    document.getElementById('clearanceList').innerHTML = list.length ? list.map(d => `
-      <label class="check-row">
-        <input type="checkbox" class="ce-check" value="${d.id}">
-        <div class="doc-info"><p class="doc-name">${d.name}</p><p class="doc-meta">${d.level} &middot; ${d.semester} sem${d.course ? ' &middot; ' + d.course : ''}</p></div>
-        <div class="doc-amount">\u20a6${Number(d.amount || 0).toLocaleString()}</div>
-      </label>`).join('') : '<p class="muted">No receipts match this filter.</p>';
+    const evalResult = ClearanceAssistant.evaluate(docs, level, sem);
+    const pctEl = document.getElementById('reqPct');
+    if (pctEl) pctEl.textContent = `${evalResult.pct}% complete`;
+    const barFill = document.getElementById('reqBarFill');
+    if (barFill) barFill.style.width = evalResult.pct + '%';
+    const reqList = document.getElementById('requirementsList');
+    if (reqList) {
+      reqList.innerHTML = evalResult.results.length
+        ? evalResult.results.map(r => `
+            <div class="req-row ${r.complete ? 'req-complete' : 'req-missing'}">
+              <div class="req-info">
+                <p class="req-name">${escapeHTML(r.req.name)}</p>
+                <p class="req-reason">${escapeHTML(r.reason)}</p>
+              </div>
+              <span class="req-badge ${r.complete ? 'req-badge-complete' : 'req-badge-missing'}">${r.complete ? 'Complete' : 'Missing'}</span>
+            </div>`).join('')
+        : '<p class="muted">No clearance requirements configured for this level/semester.</p>';
+    }
 
-    document.querySelectorAll('#clearanceList .ce-check').forEach(cb => cb.addEventListener('change', () => this.updateCeCount()));
+    // Not limited to receipts any more — a clearance packet can include
+    // admin letters and dockets too, matching the requirement categories.
+    const list = docs.filter(d => (!level || d.level === level) && (!sem || d.semester === sem));
+    PacketBuilder.pruneToVisible(list.map(d => d.id));
+
+    document.getElementById('clearanceList').innerHTML = list.length ? list.map(d => {
+      const cat = this.categoryMeta(d.category);
+      return `
+        <label class="check-row">
+          <input type="checkbox" class="ce-check" value="${d.id}" ${PacketBuilder.order.includes(d.id) ? 'checked' : ''}>
+          <div class="doc-info"><p class="doc-name">${escapeHTML(d.name)}</p><p class="doc-meta">${cat.label} &middot; ${d.level} &middot; ${d.semester} sem${d.course ? ' &middot; ' + escapeHTML(d.course) : ''}</p></div>
+          <div class="doc-amount">${d.amount ? '\u20a6' + Number(d.amount).toLocaleString() : '\u2014'}</div>
+        </label>`;
+    }).join('') : '<p class="muted">No documents match this filter yet.</p>';
+
+    document.querySelectorAll('#clearanceList .ce-check').forEach(cb => {
+      cb.addEventListener('change', () => PacketBuilder.toggle(cb.value, cb.checked));
+    });
     this.updateCeCount();
+    await PacketBuilder.renderOrderPanel();
   },
 
   updateCeCount() {
-    const n = document.querySelectorAll('#clearanceList .ce-check:checked').length;
     const el = document.getElementById('ceCount');
-    if (el) el.textContent = `${n} selected`;
+    if (el) el.textContent = `${PacketBuilder.order.length} selected`;
   },
 
   async populateCafeSelect() {
@@ -1011,21 +1249,46 @@ const DocModal = {
       metaLine.textContent = `${doc.size ? formatFileSize(doc.size) : 'Unknown size'} \u00b7 Uploaded ${uploaded} \u00b7 Modified ${modified}`;
     }
 
+    const detectedLine = document.getElementById('docDetectedInfo');
+    if (detectedLine) {
+      const detected = [];
+      if (doc.institution) detected.push(`Institution: ${doc.institution}`);
+      if (doc.extractedStudentId) detected.push(`Student ID on document: ${doc.extractedStudentId}`);
+      if (doc.academicSession) detected.push(`Session: ${doc.academicSession}`);
+      if (detected.length) {
+        detectedLine.textContent = 'Detected from document \u2014 ' + detected.join(' \u00b7 ');
+        detectedLine.classList.remove('hidden');
+      } else {
+        detectedLine.classList.add('hidden');
+      }
+    }
+
     const downloadBtn = document.getElementById('downloadDocBtn');
     if (downloadBtn) downloadBtn.classList.toggle('hidden', !doc.hasFile);
 
     const ocrBox = document.getElementById('ocrTextBox');
-    if (doc.ocrStatus === 'done' && doc.ocrText) {
+    const rerunBtn = document.getElementById('rerunOcrBtn');
+    const copyBtn = document.getElementById('copyOcrTextBtn');
+
+    if (doc.ocrStatus === 'native' && doc.ocrText) {
       ocrBox.classList.remove('hidden');
       document.getElementById('ocrTextContent').textContent = doc.ocrText;
-      document.getElementById('ocrStatusLabel').textContent = 'Text detected on scan';
+      document.getElementById('ocrStatusLabel').textContent = 'Text extracted from PDF (no scan needed)';
+    } else if (doc.ocrStatus === 'done' && doc.ocrText) {
+      ocrBox.classList.remove('hidden');
+      document.getElementById('ocrTextContent').textContent = doc.ocrText;
+      document.getElementById('ocrStatusLabel').textContent = 'Text detected on scan \u2014 may not be perfectly accurate';
     } else if (doc.ocrStatus === 'failed') {
       ocrBox.classList.remove('hidden');
-      document.getElementById('ocrTextContent').textContent = 'Scan didn\u2019t return readable text. You can fill in the fields above manually.';
+      document.getElementById('ocrTextContent').textContent = 'Scan didn\u2019t return readable text. You can fill in the fields above manually, or try again.';
       document.getElementById('ocrStatusLabel').textContent = 'Scan unavailable';
     } else {
       ocrBox.classList.add('hidden');
     }
+
+    const canRerun = doc.hasFile && doc.ocrStatus !== 'native';
+    if (rerunBtn) rerunBtn.classList.toggle('hidden', !canRerun);
+    if (copyBtn) copyBtn.classList.toggle('hidden', !doc.ocrText);
 
     UI.openModal('docModal');
   },
@@ -1105,12 +1368,228 @@ const DocModal = {
     if (!doc) return;
     await Documents.renderPrintArea(doc);
     window.print();
+  },
+
+  async rerunOcr() {
+    if (!this.currentId) return;
+    const user = await Auth.currentUser();
+    const docs = await DB.getDocuments(user.id);
+    const idx = docs.findIndex(d => d.id === this.currentId);
+    if (idx === -1) return;
+    const doc = docs[idx];
+    if (!doc.hasFile) { UI.toast('Original file isn\u2019t available on this device'); return; }
+
+    const rerunBtn = document.getElementById('rerunOcrBtn');
+    const resetBtn = () => { if (rerunBtn) { rerunBtn.disabled = false; rerunBtn.textContent = 'Rerun OCR'; } };
+    if (rerunBtn) { rerunBtn.disabled = true; rerunBtn.textContent = 'Scanning\u2026'; }
+
+    const checkOcrQuota = async () => {
+      const limit = Plans.ocrPerDay(user);
+      const used = await DB.usageToday(user.id, 'ocr');
+      if (limit != null && used >= limit) {
+        return { ok: false, message: `You've used all ${limit} free OCR scans today. Try again tomorrow or upgrade to Pro.` };
+      }
+      return { ok: true };
+    };
+
+    let text = '', status = 'failed', source = doc.textSource;
+    try {
+      const blob = await FileStore.get(doc.id);
+      if (!blob) { resetBtn(); UI.toast('Could not load the original file'); return; }
+
+      if (doc.fileType === 'application/pdf') {
+        const { text: nativeText, pdf } = await extractPdfText(blob);
+        if (nativeText.length >= PDF_MIN_TEXT_LENGTH) {
+          text = nativeText; status = 'native'; source = 'pdf';
+        } else if (pdf) {
+          const quota = await checkOcrQuota();
+          if (!quota.ok) { resetBtn(); UI.toast(quota.message); return; }
+          if (typeof Tesseract === 'undefined') { resetBtn(); UI.toast('OCR engine unavailable offline'); return; }
+          text = await ocrPdfFirstPage(pdf);
+          await DB.incrementUsage(user.id, 'ocr').catch(() => {});
+          status = text ? 'done' : 'failed';
+          source = text ? 'ocr' : source;
+        }
+      } else {
+        const quota = await checkOcrQuota();
+        if (!quota.ok) { resetBtn(); UI.toast(quota.message); return; }
+        if (typeof Tesseract === 'undefined') { resetBtn(); UI.toast('OCR engine unavailable offline'); return; }
+        const { data } = await Tesseract.recognize(blob, 'eng');
+        text = (data.text || '').trim();
+        await DB.incrementUsage(user.id, 'ocr').catch(() => {});
+        status = text ? 'done' : 'failed';
+        source = text ? 'ocr' : source;
+      }
+    } catch (e) {
+      status = 'failed';
+    }
+
+    // Only backfill fields the document doesn't already have — rerunning
+    // OCR shouldn't overwrite something the student already reviewed/edited.
+    const found = Extractor.analyze(text);
+    const patch = { ocrText: text, ocrStatus: status, textSource: source, modifiedAt: new Date().toISOString() };
+    if (!doc.referenceNumber && found.referenceNumber) { patch.referenceNumber = found.referenceNumber; patch.referenceType = found.referenceType || doc.referenceType; }
+    if (!doc.amount && found.amount) patch.amount = Number(found.amount) || 0;
+    if (!doc.date && found.date) patch.date = found.date;
+    if (!doc.institution && found.institution) patch.institution = found.institution;
+    if (!doc.extractedStudentId && found.studentId) patch.extractedStudentId = found.studentId;
+    if (!doc.academicSession && found.academicSession) patch.academicSession = found.academicSession;
+
+    docs[idx] = { ...doc, ...patch };
+    try {
+      await DB.saveDocuments(user.id, docs);
+    } catch (err) {
+      resetBtn();
+      UI.toast(err.message || 'Could not save the scan result');
+      return;
+    }
+
+    resetBtn();
+    UI.toast(text ? 'Scan complete' : 'Scan didn\u2019t find readable text');
+    await this.open(this.currentId);
+    await Views.filterDocuments();
+  },
+
+  copyOcrText() {
+    const text = document.getElementById('ocrTextContent').textContent;
+    if (!text) return;
+    navigator.clipboard?.writeText(text).then(() => UI.toast('Text copied')).catch(() => UI.toast('Copy manually \u2014 clipboard blocked'));
   }
 };
 
 /* =========================================================
    DOCUMENTS: multi-file upload w/ OCR, clearance, cafe PIN
    ========================================================= */
+/* =========================================================
+   CLEARANCE ASSISTANT
+   Evaluates configurable requirements (from data.json) against the
+   student's documents using the same haystack the search box uses —
+   category, level/semester tagging, and keyword matches in extracted
+   text. Nothing here is guessed: a requirement is only "complete"
+   when an actual document matches it.
+   ========================================================= */
+const ClearanceAssistant = {
+  // A requirement applies to the current filter unless the filter is
+  // "All" (in which case every requirement in the template is shown)
+  // or the requirement itself has no level/semester restriction.
+  applicableRequirements(filterLevel, filterSem) {
+    return (CONFIG.clearanceRequirements || []).filter(r =>
+      (!filterLevel || !r.level || r.level === filterLevel) &&
+      (!filterSem || !r.semester || r.semester === filterSem)
+    );
+  },
+
+  matchDoc(req, doc, filterLevel, filterSem) {
+    if (req.category && doc.category !== req.category) return false;
+    if (filterLevel && doc.level !== filterLevel) return false;
+    if (filterSem && doc.semester !== filterSem) return false;
+    if (req.keywords && req.keywords.length) {
+      const hay = Views.buildHaystack(doc);
+      return req.keywords.some(k => hay.includes(k.toLowerCase()));
+    }
+    return true;
+  },
+
+  evaluate(docs, filterLevel, filterSem) {
+    const reqs = this.applicableRequirements(filterLevel, filterSem);
+    const results = reqs.map(req => {
+      const match = docs.find(d => this.matchDoc(req, d, filterLevel, filterSem));
+      let reason;
+      if (match) {
+        const hay = Views.buildHaystack(match);
+        const hitKeyword = (req.keywords || []).find(k => hay.includes(k.toLowerCase()));
+        reason = hitKeyword ? `Matched "${match.name}" \u2014 mentions "${hitKeyword}"` : `Matched "${match.name}"`;
+      } else {
+        reason = (req.keywords && req.keywords.length)
+          ? `No ${req.category ? req.category.toLowerCase() + ' ' : ''}document found mentioning: ${req.keywords.join(', ')}`
+          : `No ${req.category || 'matching'} document found`;
+      }
+      return { req, complete: !!match, doc: match || null, reason };
+    });
+    const completedCount = results.filter(r => r.complete).length;
+    return {
+      results,
+      completedCount,
+      total: results.length,
+      pct: results.length ? Math.round((completedCount / results.length) * 100) : 100
+    };
+  }
+};
+
+/* =========================================================
+   PACKET BUILDER
+   Ordered selection of vault documents for the clearance packet.
+   Separate from Vault's bulk-select Set because order matters here.
+   ========================================================= */
+const PacketBuilder = {
+  order: [],
+
+  toggle(id, checked) {
+    if (checked) {
+      if (!this.order.includes(id)) this.order.push(id);
+    } else {
+      this.order = this.order.filter(x => x !== id);
+    }
+    Documents.updateCeCount();
+    this.renderOrderPanel();
+  },
+
+  // Called whenever the level/semester filter changes so a selection
+  // that's no longer visible doesn't silently stay "selected" forever.
+  pruneToVisible(visibleIds) {
+    this.order = this.order.filter(id => visibleIds.includes(id));
+  },
+
+  move(id, dir) {
+    const idx = this.order.indexOf(id);
+    if (idx === -1) return;
+    const swapWith = idx + dir;
+    if (swapWith < 0 || swapWith >= this.order.length) return;
+    [this.order[idx], this.order[swapWith]] = [this.order[swapWith], this.order[idx]];
+    this.renderOrderPanel();
+  },
+
+  remove(id) {
+    this.order = this.order.filter(x => x !== id);
+    const cb = document.querySelector(`#clearanceList .ce-check[value="${id}"]`);
+    if (cb) cb.checked = false;
+    Documents.updateCeCount();
+    this.renderOrderPanel();
+  },
+
+  async renderOrderPanel() {
+    const panel = document.getElementById('packetOrderPanel');
+    const list = document.getElementById('packetOrderList');
+    if (!panel || !list) return;
+    if (!this.order.length) { panel.classList.add('hidden'); list.innerHTML = ''; return; }
+
+    panel.classList.remove('hidden');
+    const user = await Auth.currentUser();
+    const docs = await DB.getDocuments(user.id);
+    list.innerHTML = this.order.map((id, i) => {
+      const d = docs.find(x => x.id === id);
+      if (!d) return '';
+      return `
+        <div class="packet-order-row">
+          <span class="packet-order-index">${i + 1}</span>
+          <span class="packet-order-name">${escapeHTML(d.name)}</span>
+          <div class="packet-order-actions">
+            <button type="button" class="icon-btn" data-move="up" data-id="${id}" ${i === 0 ? 'disabled' : ''} aria-label="Move up">\u2191</button>
+            <button type="button" class="icon-btn" data-move="down" data-id="${id}" ${i === this.order.length - 1 ? 'disabled' : ''} aria-label="Move down">\u2193</button>
+            <button type="button" class="icon-btn" data-remove="${id}" aria-label="Remove">\u00d7</button>
+          </div>
+        </div>`;
+    }).join('');
+
+    list.querySelectorAll('[data-move]').forEach(btn => {
+      btn.addEventListener('click', () => this.move(btn.dataset.id, btn.dataset.move === 'up' ? -1 : 1));
+    });
+    list.querySelectorAll('[data-remove]').forEach(btn => {
+      btn.addEventListener('click', () => this.remove(btn.dataset.remove));
+    });
+  }
+};
+
 const Documents = {
   init() {
     const dz = document.getElementById('dropzone');
@@ -1159,6 +1638,9 @@ const Documents = {
     const limits = Plans.limits(user);
     const maxFileBytes = (CONFIG.upload.maxFileSizeMB || 10) * 1024 * 1024;
     const quotaBytes = limits.maxStorageMB ? limits.maxStorageMB * 1024 * 1024 : Infinity;
+    const ocrLimit = Plans.ocrPerDay(user);
+    let ocrUsed = await DB.usageToday(user.id, 'ocr');
+    let ocrLimitHit = false;
 
     const queuePanel = document.getElementById('uploadQueue');
     const queueList = document.getElementById('uploadQueueList');
@@ -1204,48 +1686,81 @@ const Documents = {
         setStatus('Rejected — could not save file', 'status-error'); rejectedCount++; continue;
       }
 
+      const isPdf = file.type === 'application/pdf';
       const isImage = file.type.startsWith('image/');
-      let ocrText = '', referenceNumber = '', amount = '', date = '', ocrStatus = 'skipped';
-      if (isImage && settings.ocrAutofill && typeof Tesseract !== 'undefined') {
-        setStatus('Scanning\u2026');
+      const canRunOcr = () => ocrLimit == null || ocrUsed < ocrLimit;
+      const useOcr = async (source) => {
+        if (!canRunOcr()) { ocrLimitHit = true; return null; }
+        ocrUsed++;
+        await DB.incrementUsage(user.id, 'ocr').catch(() => {});
+        return source();
+      };
+
+      let extractedText = '', ocrStatus = 'skipped', textSource = 'none';
+
+      if (isPdf) {
+        setStatus('Reading PDF text\u2026');
         try {
-          const { data } = await Tesseract.recognize(file, 'eng');
-          ocrText = (data.text || '').trim();
-          ocrStatus = ocrText ? 'done' : 'failed';
-          const refMatch = ocrText.match(/\b(\d{4}[\s-]?\d{4}[\s-]?\d{3,4})\b/);
-          const amountMatch = ocrText.match(/(?:\u20a6|N|NGN)\s?([\d,]{3,12})/i);
-          const dateMatch = ocrText.match(/\b(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})\b/);
-          if (refMatch) referenceNumber = refMatch[1];
-          if (amountMatch) amount = amountMatch[1].replace(/,/g, '');
-          if (dateMatch) date = this.normalizeDate(dateMatch[1]);
+          const { text, pdf } = await extractPdfText(file);
+          if (text.length >= PDF_MIN_TEXT_LENGTH) {
+            extractedText = text;
+            ocrStatus = 'native';
+            textSource = 'pdf';
+          } else if (settings.ocrAutofill && typeof Tesseract !== 'undefined' && pdf) {
+            setStatus('Scanning\u2026');
+            const scanned = await useOcr(() => ocrPdfFirstPage(pdf));
+            if (scanned != null) {
+              extractedText = scanned;
+              ocrStatus = scanned ? 'done' : 'failed';
+              textSource = scanned ? 'ocr' : 'none';
+            }
+          }
         } catch (e) { ocrStatus = 'failed'; }
+      } else if (isImage && settings.ocrAutofill && typeof Tesseract !== 'undefined') {
+        setStatus('Scanning\u2026');
+        const scanned = await useOcr(async () => {
+          try {
+            const { data } = await Tesseract.recognize(file, 'eng');
+            return (data.text || '').trim();
+          } catch (e) { return ''; }
+        });
+        if (scanned != null) {
+          extractedText = scanned;
+          ocrStatus = scanned ? 'done' : 'failed';
+          textSource = scanned ? 'ocr' : 'none';
+        }
       }
 
+      const found = Extractor.analyze(extractedText);
       const now = new Date().toISOString();
       docs.unshift({
         id,
         name: file.name.replace(/\.[^.]+$/, ''),
-        category: 'Receipt',
-        level: profile.level || CONFIG.levels[0],
-        semester: CONFIG.semesters[0],
+        category: found.category || 'Receipt',
+        level: found.level || profile.level || CONFIG.levels[0],
+        semester: found.semester || CONFIG.semesters[0],
         course: '',
-        referenceType: 'RRR',
-        referenceNumber,
-        amount: Number(amount) || 0,
-        date,
+        referenceType: found.referenceType || 'RRR',
+        referenceNumber: found.referenceNumber || '',
+        amount: Number(found.amount) || 0,
+        date: found.date || '',
         size: file.size,
         fileType: file.type,
         uploadedAt: now,
         modifiedAt: now,
         hasFile: true,
-        ocrText,
-        ocrStatus
+        ocrText: extractedText,
+        ocrStatus,
+        textSource,
+        institution: found.institution || '',
+        extractedStudentId: found.studentId || '',
+        academicSession: found.academicSession || ''
       });
       newIds.push(id);
       usedBytes += file.size;
       docCount++;
       addedCount++;
-      setStatus('Saved', 'status-ok');
+      setStatus(ocrStatus === 'native' ? 'Saved \u00b7 text found' : (ocrStatus === 'done' ? 'Saved \u00b7 scanned' : 'Saved'), 'status-ok');
     }
 
     let saveFailed = false;
@@ -1263,6 +1778,7 @@ const Documents = {
       if (addedCount && rejectedCount) UI.toast(`${addedCount} file${addedCount === 1 ? '' : 's'} added, ${rejectedCount} rejected — see details below`);
       else if (addedCount) UI.toast(`${addedCount} file${addedCount === 1 ? '' : 's'} added to your vault`);
       else if (rejectedCount) UI.toast(`No files added — ${rejectedCount} rejected. See details below.`);
+      if (ocrLimitHit) UI.toast(`Daily OCR limit reached \u2014 some files were saved without a text scan`);
     }
 
     const keepQueueVisible = rejectedCount > 0 || saveFailed;
@@ -1273,14 +1789,6 @@ const Documents = {
     await Views.filterDocuments();
     if (currentRoute() === 'dashboard') await Views.renderDashboard();
     if (currentRoute() === 'upload') await Views.renderUploadCapacity();
-  },
-
-  normalizeDate(str) {
-    const parts = str.split(/[\/\-.]/);
-    if (parts.length !== 3) return '';
-    let [a, b, y] = parts;
-    if (y.length === 2) y = '20' + y;
-    return `${y}-${String(b).padStart(2, '0')}-${String(a).padStart(2, '0')}`;
   },
 
   openPreview(id) { DocModal.open(id); },
@@ -1334,28 +1842,63 @@ const Documents = {
   },
 
   async compileClearance() {
-    const checks = [...document.querySelectorAll('#clearanceList .ce-check:checked')].map(c => c.value);
-    if (!checks.length) { UI.toast('Select at least one document first'); return; }
+    const ids = PacketBuilder.order;
+    if (!ids.length) { UI.toast('Select at least one document first'); return; }
 
     const user = await Auth.currentUser();
     const docs = await DB.getDocuments(user.id);
-    const selected = docs.filter(d => checks.includes(d.id));
+    const profile = await DB.getProfile(user.id);
+    const selected = ids.map(id => docs.find(d => d.id === id)).filter(Boolean);
+    if (!selected.length) { UI.toast('Select at least one document first'); return; }
+
+    const level = document.getElementById('ceLevel').value;
+    const sem = document.getElementById('ceSemester').value;
+    const evalResult = ClearanceAssistant.evaluate(docs, level, sem);
 
     if (typeof window.jspdf === 'undefined') { UI.toast('PDF engine unavailable offline'); return; }
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF();
-    pdf.setFontSize(16);
-    pdf.text('Clearance Packet', 14, 18);
-    pdf.setFontSize(10);
-    pdf.text(`Generated ${new Date().toLocaleDateString()} \u00b7 ${selected.length} document(s)`, 14, 25);
 
-    let y = 38;
+    // --- Cover page ---
+    pdf.setFontSize(18);
+    pdf.text('Clearance Packet', 14, 20);
+    pdf.setFontSize(10);
+    pdf.text(`Generated ${new Date().toLocaleDateString()}`, 14, 27);
+
+    pdf.setFontSize(12);
+    pdf.text('Student', 14, 40);
+    pdf.setFontSize(9);
+    pdf.text(`${profile.name || 'Student'}${profile.matric ? '  \u00b7  ' + profile.matric : ''}`, 14, 47);
+    pdf.text(`${profile.email || ''}`, 14, 53);
+    pdf.text(`${profile.department || ''}${level ? '  \u00b7  ' + level : ''}${sem ? '  \u00b7  ' + sem + ' semester' : ''}`, 14, 59);
+
+    pdf.setFontSize(12);
+    pdf.text(`Requirements (${evalResult.pct}% complete)`, 14, 72);
+    let ry = 79;
+    if (evalResult.results.length) {
+      evalResult.results.forEach(r => {
+        pdf.setFontSize(9);
+        pdf.text(`${r.complete ? '[x]' : '[ ]'} ${r.req.name} \u2014 ${r.complete ? 'Complete' : 'Missing'}`, 14, ry);
+        ry += 6;
+      });
+    } else {
+      pdf.setFontSize(9);
+      pdf.text('No clearance requirements configured for this level/semester.', 14, ry);
+      ry += 6;
+    }
+
+    pdf.setFontSize(12);
+    pdf.text(`Included documents (${selected.length})`, 14, ry + 10);
+
+    // --- Document detail ---
+    pdf.addPage();
+    let y = 20;
     selected.forEach((d, i) => {
-      if (y > 270) { pdf.addPage(); y = 20; }
+      if (y > 265) { pdf.addPage(); y = 20; }
       pdf.setFontSize(12);
       pdf.text(`${i + 1}. ${d.name}`, 14, y);
       pdf.setFontSize(9);
-      pdf.text(`${d.level} \u00b7 ${d.semester} semester${d.course ? ' \u00b7 ' + d.course : ''}`, 14, y + 6);
+      pdf.text(`${d.level} \u00b7 ${d.semester} semester${d.course ? ' \u00b7 ' + d.course : ''}${d.institution ? ' \u00b7 ' + d.institution : ''}`, 14, y + 6);
       pdf.text(`${d.referenceType || 'Reference'}: ${d.referenceNumber || '\u2014'}    Amount: ${d.amount ? '\u20a6' + d.amount.toLocaleString() : '\u2014'}    Date: ${d.date || '\u2014'}`, 14, y + 12);
       y += 22;
     });
@@ -1484,6 +2027,8 @@ function initDocModal() {
   document.getElementById('deleteDocBtn').addEventListener('click', () => DocModal.delete());
   document.getElementById('printDocBtn').addEventListener('click', () => DocModal.print());
   document.getElementById('downloadDocBtn').addEventListener('click', () => DocModal.download());
+  document.getElementById('rerunOcrBtn').addEventListener('click', () => DocModal.rerunOcr());
+  document.getElementById('copyOcrTextBtn').addEventListener('click', () => DocModal.copyOcrText());
 }
 
 function initAppShellChrome() {
