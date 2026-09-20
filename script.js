@@ -198,19 +198,37 @@ async function ocrPdfFirstPage(pdf) {
 }
 
 const Extractor = {
-  // Finds a currency amount. Prefers a symbol/code-prefixed number (most
-  // reliable); falls back to a number that follows a word like "amount"
-  // or "total". Returns '' if nothing reasonably confident is found.
+  // Finds a currency amount, but only when there's real contextual evidence
+  // — a currency symbol/code, or an explicit label like "Amount"/"Total".
+  // A bare number is never treated as an amount, since that's how phone
+  // numbers, student IDs and reference numbers get misread as money.
   findAmount(text) {
-    const symbolMatch = text.match(/(?:\u20a6|N|NGN|\$|USD|\u00a3|GBP|\u20ac|EUR)\s?([\d,]{3,12}(?:\.\d{1,2})?)/i);
-    if (symbolMatch) return symbolMatch[1].replace(/,/g, '');
-    const wordMatch = text.match(/(?:amount|total|sum paid|amount paid|fee)s?\s*[:\-]?\s*(?:\u20a6|N|\$|\u00a3|\u20ac)?\s?([\d,]{3,12}(?:\.\d{1,2})?)/i);
-    if (wordMatch) return wordMatch[1].replace(/,/g, '');
+    // Unambiguous currency markers — safe to trust directly.
+    const strongMatch = text.match(/(?:\u20a6|NGN|\$|USD|\u00a3|GBP|\u20ac|EUR)\s?([\d,]{3,12}(?:\.\d{1,2})?)/i);
+    if (strongMatch) { const v = this._cleanAmount(strongMatch[1]); if (v) return v; }
+
+    // Bare "N" for Naira is ambiguous (collides with room numbers, IDs,
+    // footnotes) — only trust it when it's comma-grouped or has decimals,
+    // which is how real amounts are actually written.
+    const shorthandMatch = text.match(/\bN\s?(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+\.\d{2})\b/);
+    if (shorthandMatch) { const v = this._cleanAmount(shorthandMatch[1]); if (v) return v; }
+
+    // Explicit wording near a number.
+    const wordMatch = text.match(/(?:amount|total|sum paid|amount paid|fee)s?\s*(?:paid|due)?\s*[:\-]?\s*(?:\u20a6|N|\$|\u00a3|\u20ac)?\s?([\d,]{3,12}(?:\.\d{1,2})?)/i);
+    if (wordMatch) { const v = this._cleanAmount(wordMatch[1]); if (v) return v; }
+
     return '';
   },
+  _cleanAmount(raw) {
+    const cleaned = String(raw || '').replace(/,/g, '');
+    const num = Number(cleaned);
+    if (!cleaned || isNaN(num) || num <= 0) return '';
+    return cleaned;
+  },
 
-  // Finds a date and normalizes it to yyyy-mm-dd. Supports numeric
-  // (dd/mm/yyyy, yyyy-mm-dd) and "5 March 2024" / "March 5, 2024" forms.
+  // Finds a date and normalizes it to yyyy-mm-dd, but only when it passes
+  // a real calendar-validity check (correct month/day range, a plausible
+  // year). This stops random number sequences from being read as dates.
   findDate(text) {
     const months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
     const monthWordMatch = text.match(/\b(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{4})\b/i)
@@ -220,40 +238,62 @@ const Extractor = {
       if (/^\d/.test(monthWordMatch[0])) { [, day, monthWord, year] = monthWordMatch; }
       else { [, monthWord, day, year] = monthWordMatch; }
       const mIdx = months.findIndex(m => m.startsWith(monthWord.toLowerCase().slice(0, 3)));
-      if (mIdx > -1) return `${year}-${String(mIdx + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      if (mIdx > -1 && this._isValidDate(year, mIdx + 1, day)) {
+        return `${year}-${String(mIdx + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      }
     }
     const isoMatch = text.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);
-    if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+    if (isoMatch && this._isValidDate(isoMatch[1], isoMatch[2], isoMatch[3])) {
+      return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+    }
     const numericMatch = text.match(/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\b/);
     if (numericMatch) {
       let [, a, b, y] = numericMatch;
       if (y.length === 2) y = '20' + y;
-      return `${y}-${String(b).padStart(2, '0')}-${String(a).padStart(2, '0')}`;
+      // Try day/month first (common outside the US); fall back to month/day.
+      if (this._isValidDate(y, b, a)) return `${y}-${String(b).padStart(2, '0')}-${String(a).padStart(2, '0')}`;
+      if (this._isValidDate(y, a, b)) return `${y}-${String(a).padStart(2, '0')}-${String(b).padStart(2, '0')}`;
     }
     return '';
   },
+  _isValidDate(y, m, d) {
+    y = Number(y); m = Number(m); d = Number(d);
+    if (!y || !m || !d) return false;
+    if (m < 1 || m > 12 || d < 1 || d > 31) return false;
+    if (y < 1990 || y > 2100) return false; // sane range for academic documents
+    const date = new Date(y, m - 1, d);
+    return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d;
+  },
 
-  // Keyword-anchored reference number (e.g. "Receipt No: ABC12345").
-  // Falls back to an RRR-shaped grouped-digit string, since that's a
-  // distinctive enough format to trust without a keyword nearby.
+  // Reference number ONLY when a real label ("Receipt No", "RRR", etc.) is
+  // found nearby. No blind digit-pattern fallback — a grouped-digit string
+  // with no label is exactly as likely to be a phone or account number.
   findReference(text, config) {
     const lower = text.toLowerCase();
     for (const { match, type } of (config.referenceKeywords || [])) {
       const idx = lower.indexOf(match);
       if (idx === -1) continue;
       const after = text.slice(idx + match.length, idx + match.length + 40);
-      const codeMatch = after.match(/[:\-\s]*([A-Za-z0-9\/\-]{5,20})/);
-      if (codeMatch && /\d/.test(codeMatch[1])) return { referenceNumber: codeMatch[1].trim(), referenceType: type };
+      const codeMatch = after.match(/^[:\-\s]*([A-Za-z0-9][A-Za-z0-9\/\- ]{2,24})/);
+      if (!codeMatch) continue;
+      const raw = codeMatch[1].trim().split(/\s{2,}/)[0]; // stop at an accidental run into the next word
+      const digitsOnlyLen = raw.replace(/[^A-Za-z0-9]/g, '').length;
+      if (/\d/.test(raw) && digitsOnlyLen >= 5 && digitsOnlyLen <= 20) {
+        return { referenceNumber: raw, referenceType: type };
+      }
     }
-    const rrrMatch = text.match(/\b(\d{4}[\s-]?\d{4}[\s-]?\d{3,4})\b/);
-    if (rrrMatch) return { referenceNumber: rrrMatch[1], referenceType: 'RRR' };
     return { referenceNumber: '', referenceType: '' };
   },
 
+  // A line is only treated as an institution name when it contains a
+  // recognizable institution-type word AND is more than a single stray word.
   findInstitution(text, markers) {
     const lines = text.split(/\n|(?<=\.)\s+/).map(l => l.trim()).filter(Boolean);
     const lower = markers.map(m => m.toLowerCase());
-    const hit = lines.find(line => lower.some(m => line.toLowerCase().includes(m)));
+    const hit = lines.find(line => {
+      const l = line.toLowerCase();
+      return lower.some(m => l.includes(m)) && line.split(/\s+/).length >= 2;
+    });
     return hit ? hit.slice(0, 80) : '';
   },
 
@@ -269,9 +309,14 @@ const Extractor = {
     return '';
   },
 
+  // Two consecutive years (e.g. "2023/2024") — but only when the second
+  // year is genuinely the first plus one, so two unrelated 4-digit numbers
+  // separated by a slash don't get read as an academic session.
   findAcademicSession(text) {
     const m = text.match(/\b(20\d{2})\s?[\/\-]\s?(20\d{2})\b/);
-    return m ? `${m[1]}/${m[2]}` : '';
+    if (!m) return '';
+    if (Number(m[2]) !== Number(m[1]) + 1) return '';
+    return `${m[1]}/${m[2]}`;
   },
 
   findSemester(text, semesterKeywords) {
@@ -282,6 +327,9 @@ const Extractor = {
     return '';
   },
 
+  // Only a direct match against a configured level string (in either
+  // "200L" or "200 Level" form). No numeric "Year N" guessing — a stray
+  // "2" near the word "year" is not credible evidence of academic level.
   findLevel(text, levels) {
     for (const lvl of levels) {
       const digits = String(lvl).match(/\d+/);
@@ -292,27 +340,49 @@ const Extractor = {
         return lvl;
       }
     }
-    const yearMatch = text.match(/\b(?:year|level)\s?(\d)\b/i);
-    if (yearMatch) {
-      const idx = Number(yearMatch[1]) - 1;
-      if (levels[idx]) return levels[idx];
+    return '';
+  },
+
+  // Looks for a short, confident-looking document title near the top of
+  // the extracted text (mostly-uppercase or title-cased, a handful of
+  // words). Returns '' rather than guessing when nothing looks credible —
+  // this only ever feeds a filename *suggestion*, never a forced rename.
+  findHeading(text) {
+    const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean).slice(0, 8);
+    for (const line of lines) {
+      if (line.length < 6 || line.length > 60) continue;
+      const words = line.split(/\s+/).filter(Boolean);
+      if (words.length < 2 || words.length > 8) continue;
+      if (!/[A-Za-z]/.test(line)) continue;
+      if (/\d{4,}/.test(line)) continue; // looks like a reference/account number line, not a title
+      const alpha = line.replace(/[^A-Za-z]/g, '');
+      if (!alpha.length) continue;
+      const upper = alpha.replace(/[^A-Z]/g, '');
+      const isMostlyUpper = (upper.length / alpha.length) > 0.7;
+      if (isMostlyUpper) return line;
     }
     return '';
   },
 
+  // A category is only suggested when one category clearly leads on
+  // keyword evidence — at least two distinct keyword hits, and not tied
+  // with the runner-up. A single incidental word is not enough evidence.
   guessCategory(text, categories) {
     const lower = text.toLowerCase();
-    let best = null, bestScore = 0;
-    categories.forEach(cat => {
-      const score = (cat.keywords || []).reduce((s, k) => s + (lower.includes(k.toLowerCase()) ? 1 : 0), 0);
-      if (score > bestScore) { best = cat.id; bestScore = score; }
-    });
-    return bestScore > 0 ? best : '';
+    const scored = categories.map(cat => ({
+      id: cat.id,
+      score: (cat.keywords || []).reduce((s, k) => s + (lower.includes(k.toLowerCase()) ? 1 : 0), 0)
+    })).sort((a, b) => b.score - a.score);
+    const top = scored[0];
+    const runnerUp = scored[1];
+    if (!top || top.score < 2) return '';
+    if (runnerUp && runnerUp.score === top.score) return '';
+    return top.id;
   },
 
   // Runs every extractor against a block of text and returns only the
   // fields it found reasonable evidence for. Anything not found comes
-  // back as '' rather than a guess.
+  // back as '' rather than a guess — never invented.
   analyze(text) {
     if (!text || !text.trim()) return {};
     const cfg = CONFIG.extraction || {};
@@ -424,7 +494,14 @@ const DB = {
       }
       await this.saveDocuments(userId, docs);
     }
-    return docs;
+
+    // Safe in-memory defaults for documents saved before this correction
+    // pass, so older records don't break new UI that expects these fields.
+    return docs.map(d => ({
+      originalFilename: d.name,
+      autoFilled: [],
+      ...d
+    }));
   },
   async saveDocuments(userId, docs) {
     const users = await this.getUsers();
@@ -586,6 +663,18 @@ function formatFileSize(bytes) {
   if (!bytes) return '0 KB';
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function toTitleCase(str) {
+  return str.toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase());
+}
+
+function sanitizeSuggestedName(str) {
+  return str
+    .replace(/[\\/:*?"<>|]/g, '') // filesystem/browser-unsafe characters
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80);
 }
 
 function dataURLtoBlob(dataURL) {
@@ -1206,6 +1295,7 @@ const Vault = {
    ========================================================= */
 const DocModal = {
   currentId: null,
+  _historyPushed: false,
 
   async open(id) {
     const user = await Auth.currentUser();
@@ -1242,11 +1332,27 @@ const DocModal = {
     document.getElementById('editSemester').value = doc.semester || 'First';
     document.getElementById('editCourse').value = doc.course || '';
 
+    // "Detected"/"suggested" tags — only shown for fields the extractor
+    // actually found real evidence for, never for default fallback values.
+    const autoFilled = doc.autoFilled || [];
+    document.querySelectorAll('.detected-tag').forEach(tag => {
+      tag.classList.toggle('hidden', !autoFilled.includes(tag.dataset.tag));
+    });
+
+    const originalName = (doc.originalFilename || '').replace(/\.[^.]+$/, '');
+    const useOriginalBtn = document.getElementById('useOriginalNameBtn');
+    if (useOriginalBtn) {
+      const suggested = autoFilled.includes('name') && originalName && originalName !== doc.name;
+      useOriginalBtn.classList.toggle('hidden', !suggested);
+    }
+
     const metaLine = document.getElementById('docModalMeta');
     if (metaLine) {
       const uploaded = doc.uploadedAt ? new Date(doc.uploadedAt).toLocaleDateString() : '\u2014';
       const modified = doc.modifiedAt ? new Date(doc.modifiedAt).toLocaleDateString() : uploaded;
-      metaLine.textContent = `${doc.size ? formatFileSize(doc.size) : 'Unknown size'} \u00b7 Uploaded ${uploaded} \u00b7 Modified ${modified}`;
+      const originalNote = (doc.originalFilename && doc.originalFilename !== doc.name) ? ` \u00b7 Originally "${doc.originalFilename}"` : '';
+      metaLine.textContent = `${doc.size ? formatFileSize(doc.size) : 'Unknown size'} \u00b7 Uploaded ${uploaded} \u00b7 Modified ${modified}${originalNote}`;
+      metaLine.dataset.originalBase = originalName;
     }
 
     const detectedLine = document.getElementById('docDetectedInfo');
@@ -1291,9 +1397,20 @@ const DocModal = {
     if (copyBtn) copyBtn.classList.toggle('hidden', !doc.ocrText);
 
     UI.openModal('docModal');
+    if (!this._historyPushed) {
+      history.pushState({ stashModal: 'doc' }, '');
+      this._historyPushed = true;
+    }
   },
 
-  close() { UI.closeModal('docModal'); this.currentId = null; },
+  close() {
+    UI.closeModal('docModal');
+    this.currentId = null;
+    if (this._historyPushed) {
+      this._historyPushed = false;
+      if (history.state && history.state.stashModal === 'doc') history.back();
+    }
+  },
 
   async save(e) {
     e.preventDefault();
@@ -1428,12 +1545,14 @@ const DocModal = {
     // OCR shouldn't overwrite something the student already reviewed/edited.
     const found = Extractor.analyze(text);
     const patch = { ocrText: text, ocrStatus: status, textSource: source, modifiedAt: new Date().toISOString() };
-    if (!doc.referenceNumber && found.referenceNumber) { patch.referenceNumber = found.referenceNumber; patch.referenceType = found.referenceType || doc.referenceType; }
-    if (!doc.amount && found.amount) patch.amount = Number(found.amount) || 0;
-    if (!doc.date && found.date) patch.date = found.date;
-    if (!doc.institution && found.institution) patch.institution = found.institution;
-    if (!doc.extractedStudentId && found.studentId) patch.extractedStudentId = found.studentId;
-    if (!doc.academicSession && found.academicSession) patch.academicSession = found.academicSession;
+    const newlyDetected = [];
+    if (!doc.referenceNumber && found.referenceNumber) { patch.referenceNumber = found.referenceNumber; patch.referenceType = found.referenceType || doc.referenceType; newlyDetected.push('referenceNumber'); }
+    if (!doc.amount && found.amount) { patch.amount = Number(found.amount) || 0; newlyDetected.push('amount'); }
+    if (!doc.date && found.date) { patch.date = found.date; newlyDetected.push('date'); }
+    if (!doc.institution && found.institution) { patch.institution = found.institution; newlyDetected.push('institution'); }
+    if (!doc.extractedStudentId && found.studentId) { patch.extractedStudentId = found.studentId; newlyDetected.push('extractedStudentId'); }
+    if (!doc.academicSession && found.academicSession) { patch.academicSession = found.academicSession; newlyDetected.push('academicSession'); }
+    if (newlyDetected.length) patch.autoFilled = [...new Set([...(doc.autoFilled || []), ...newlyDetected])];
 
     docs[idx] = { ...doc, ...patch };
     try {
@@ -1454,6 +1573,15 @@ const DocModal = {
     const text = document.getElementById('ocrTextContent').textContent;
     if (!text) return;
     navigator.clipboard?.writeText(text).then(() => UI.toast('Text copied')).catch(() => UI.toast('Copy manually \u2014 clipboard blocked'));
+  },
+
+  useOriginalName() {
+    const original = document.getElementById('docModalMeta').dataset.originalBase;
+    // Fallback: recompute from the currently-open doc if the dataset wasn't set.
+    if (original) {
+      document.getElementById('editName').value = original;
+      return;
+    }
   }
 };
 
@@ -1594,8 +1722,10 @@ const Documents = {
   init() {
     const dz = document.getElementById('dropzone');
     const input = document.getElementById('fileInput');
+    const cameraInput = document.getElementById('cameraInput');
 
     document.getElementById('chooseFileBtn').addEventListener('click', () => input.click());
+    document.getElementById('scanCameraBtn').addEventListener('click', () => cameraInput.click());
     dz.addEventListener('click', e => { if (!e.target.closest('button')) input.click(); });
     ['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('drag'); }));
     ['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('drag'); }));
@@ -1603,6 +1733,15 @@ const Documents = {
     input.addEventListener('change', e => {
       const files = Array.from(e.target.files || []);
       input.value = '';
+      if (files.length) this.handleFiles(files);
+    });
+    // Camera capture feeds the exact same ingestion pipeline as a normal
+    // upload — same validation, same extraction, same storage. On desktop
+    // browsers `capture` is simply ignored and this opens a normal file
+    // picker instead, which is the correct fallback behavior.
+    cameraInput.addEventListener('change', e => {
+      const files = Array.from(e.target.files || []);
+      cameraInput.value = '';
       if (files.length) this.handleFiles(files);
     });
 
@@ -1645,9 +1784,14 @@ const Documents = {
     const queuePanel = document.getElementById('uploadQueue');
     const queueList = document.getElementById('uploadQueueList');
     queuePanel.classList.remove('hidden');
-    queueList.innerHTML = files.map((f, i) =>
-      `<div class="queue-item" id="queueItem${i}"><span>${escapeHTML(f.name)}</span><span class="queue-status">Waiting\u2026</span></div>`
-    ).join('');
+    queueList.innerHTML = files.map((f, i) => {
+      const ext = (f.name.split('.').pop() || '').toUpperCase();
+      return `<div class="queue-item" id="queueItem${i}">
+        <span class="queue-filename">${escapeHTML(f.name)}</span>
+        <span class="queue-filemeta">${ext} \u00b7 ${formatFileSize(f.size)}</span>
+        <span class="queue-status">Waiting\u2026</span>
+      </div>`;
+    }).join('');
 
     const docs = await DB.getDocuments(user.id);
     let usedBytes = docs.reduce((s, d) => s + (d.size || 0), 0);
@@ -1732,10 +1876,27 @@ const Documents = {
       }
 
       const found = Extractor.analyze(extractedText);
+      const heading = extractedText ? Extractor.findHeading(extractedText) : '';
+      const suggestedName = heading ? sanitizeSuggestedName(toTitleCase(heading)) : '';
+      const originalBaseName = file.name.replace(/\.[^.]+$/, '');
+
+      const autoFilled = [];
+      if (found.category) autoFilled.push('category');
+      if (found.level) autoFilled.push('level');
+      if (found.semester) autoFilled.push('semester');
+      if (found.referenceNumber) autoFilled.push('referenceNumber');
+      if (found.amount) autoFilled.push('amount');
+      if (found.date) autoFilled.push('date');
+      if (found.institution) autoFilled.push('institution');
+      if (found.studentId) autoFilled.push('extractedStudentId');
+      if (found.academicSession) autoFilled.push('academicSession');
+      if (suggestedName) autoFilled.push('name');
+
       const now = new Date().toISOString();
       docs.unshift({
         id,
-        name: file.name.replace(/\.[^.]+$/, ''),
+        name: suggestedName || originalBaseName,
+        originalFilename: file.name,
         category: found.category || 'Receipt',
         level: found.level || profile.level || CONFIG.levels[0],
         semester: found.semester || CONFIG.semesters[0],
@@ -1754,7 +1915,8 @@ const Documents = {
         textSource,
         institution: found.institution || '',
         extractedStudentId: found.studentId || '',
-        academicSession: found.academicSession || ''
+        academicSession: found.academicSession || '',
+        autoFilled
       });
       newIds.push(id);
       usedBytes += file.size;
@@ -2022,6 +2184,7 @@ function initAuthForms() {
 
 function initDocModal() {
   document.getElementById('closeDocModal').addEventListener('click', () => DocModal.close());
+  document.getElementById('docModalBackBtn').addEventListener('click', () => DocModal.close());
   document.getElementById('docModal').addEventListener('click', e => { if (e.target.id === 'docModal') DocModal.close(); });
   document.getElementById('docEditForm').addEventListener('submit', e => DocModal.save(e));
   document.getElementById('deleteDocBtn').addEventListener('click', () => DocModal.delete());
@@ -2029,6 +2192,7 @@ function initDocModal() {
   document.getElementById('downloadDocBtn').addEventListener('click', () => DocModal.download());
   document.getElementById('rerunOcrBtn').addEventListener('click', () => DocModal.rerunOcr());
   document.getElementById('copyOcrTextBtn').addEventListener('click', () => DocModal.copyOcrText());
+  document.getElementById('useOriginalNameBtn').addEventListener('click', () => DocModal.useOriginalName());
 }
 
 function initAppShellChrome() {
@@ -2189,5 +2353,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   CafePrint.init();
 
   window.addEventListener('hashchange', router);
+
+  // If the document modal is open and the user hits the browser/hardware
+  // back button, close it instead of leaving the app on a stale view.
+  // The entry was already popped by the browser, so we just clean up —
+  // no further history manipulation here, which is what avoids stacking
+  // up duplicate entries on repeated open/close.
+  window.addEventListener('popstate', () => {
+    if (DocModal.currentId && !document.getElementById('docModal').classList.contains('hidden')) {
+      UI.closeModal('docModal');
+      DocModal.currentId = null;
+      DocModal._historyPushed = false;
+    }
+  });
+
   await router();
 });

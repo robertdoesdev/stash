@@ -236,27 +236,34 @@
 <!-- ============ DOCUMENT PREVIEW / EDIT MODAL ============ -->
 <div class="modal-overlay hidden" id="docModal">
   <div class="modal modal-lg">
+    <div class="modal-mobile-header">
+      <button type="button" class="modal-back-btn" id="docModalBackBtn">&larr; Documents</button>
+    </div>
     <button type="button" class="modal-close" id="closeDocModal" aria-label="Close">&times;</button>
     <div class="doc-modal-grid">
       <div class="doc-preview-pane" id="docPreviewPane"></div>
       <form class="doc-edit-pane" id="docEditForm" novalidate>
-        <label class="field"><span>Document name</span><input type="text" id="editName" required></label>
+        <label class="field">
+          <span>Document name <em class="detected-tag hidden" data-tag="name">suggested from document</em></span>
+          <input type="text" id="editName" required>
+        </label>
+        <button type="button" class="link-btn hidden" id="useOriginalNameBtn">Use original filename</button>
         <p class="doc-modal-meta" id="docModalMeta"></p>
         <p class="doc-detected-info hidden" id="docDetectedInfo"></p>
         <div class="field-row">
           <label class="field"><span>Reference type</span><select id="editReferenceType"></select></label>
-          <label class="field"><span>Reference number</span><input type="text" id="editReferenceNumber"></label>
+          <label class="field"><span>Reference number <em class="detected-tag hidden" data-tag="referenceNumber">detected</em></span><input type="text" id="editReferenceNumber" placeholder="\u2014"></label>
         </div>
         <div class="field-row">
-          <label class="field"><span>Amount (₦)</span><input type="text" id="editAmount"></label>
-          <label class="field"><span>Date</span><input type="date" id="editDate"></label>
+          <label class="field"><span>Amount (₦) <em class="detected-tag hidden" data-tag="amount">detected</em></span><input type="text" id="editAmount" placeholder="\u2014"></label>
+          <label class="field"><span>Date <em class="detected-tag hidden" data-tag="date">detected</em></span><input type="date" id="editDate"></label>
         </div>
         <div class="field-row">
-          <label class="field"><span>Category</span><select id="editCategory"></select></label>
-          <label class="field"><span>Level</span><select id="editLevel"></select></label>
+          <label class="field"><span>Category <em class="detected-tag hidden" data-tag="category">suggested</em></span><select id="editCategory"></select></label>
+          <label class="field"><span>Level <em class="detected-tag hidden" data-tag="level">detected</em></span><select id="editLevel"></select></label>
         </div>
         <div class="field-row">
-          <label class="field"><span>Semester</span><select id="editSemester"></select></label>
+          <label class="field"><span>Semester <em class="detected-tag hidden" data-tag="semester">detected</em></span><select id="editSemester"></select></label>
           <label class="field"><span>Course code (optional)</span><input type="text" id="editCourse"></label>
         </div>
 
@@ -417,9 +424,13 @@
 
       <div class="panel dropzone" id="dropzone">
         <input type="file" id="fileInput" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" multiple hidden>
+        <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
         <i data-ic="upload" class="drop-icon"></i>
         <h3>Drag files here, or</h3>
-        <button class="btn btn-primary" type="button" id="chooseFileBtn">Choose files</button>
+        <div class="dropzone-actions">
+          <button class="btn btn-primary" type="button" id="chooseFileBtn">Choose files</button>
+          <button class="btn btn-secondary" type="button" id="scanCameraBtn">Scan with camera</button>
+        </div>
         <span class="drop-hint">PDF, JPG or PNG &middot; up to 10MB each &middot; multiple files at once</span>
       </div>
 
