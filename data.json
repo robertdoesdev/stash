@@ -14,10 +14,11 @@
     "acceptedExtensions": [".pdf", ".jpg", ".jpeg", ".png"]
   },
   "categories": [
-    { "id": "Receipt", "label": "Receipt", "badge": "RCT", "color": "accent", "keywords": ["receipt", "payment", "paid", "invoice", "fee", "fees", "transaction", "amount paid"] },
-    { "id": "Docket", "label": "Docket", "badge": "DKT", "color": "accent-2", "keywords": ["docket", "slip", "confirmation", "acknowledgement", "registration", "enrolment", "enrollment"] },
-    { "id": "Admin", "label": "Admin", "badge": "ADM", "color": "accent-3", "keywords": ["admission", "clearance", "transcript", "certificate", "letter", "matriculation"] }
+    { "id": "Receipts", "label": "Receipts / Invoices", "badge": "RCT", "color": "accent", "keywords": ["receipt", "payment", "paid", "invoice", "fee", "fees", "transaction", "amount paid"] },
+    { "id": "ClassPDFs", "label": "Class PDFs", "badge": "PDF", "color": "accent-2", "keywords": ["lecture", "course outline", "syllabus", "assignment", "handout", "tutorial", "course material"] },
+    { "id": "Images", "label": "Images", "badge": "IMG", "color": "accent-3", "keywords": ["photo", "scan", "picture", "snapshot"] }
   ],
+  "categoryMigration": { "Receipt": "Receipts", "Docket": "ClassPDFs", "Admin": "Images" },
   "extraction": {
     "institutionMarkers": ["university", "polytechnic", "college", "institute", "school of"],
     "referenceKeywords": [
@@ -42,7 +43,7 @@
       "id": "req_fees",
       "name": "Tuition / School Fees Receipt",
       "description": "Proof of tuition payment for the semester.",
-      "category": "Receipt",
+      "category": "Receipts",
       "level": "",
       "semester": "",
       "keywords": ["tuition", "school fees", "fees receipt", "fee payment"]
@@ -51,7 +52,7 @@
       "id": "req_admission",
       "name": "Admission / Matriculation Letter",
       "description": "Official admission or matriculation letter.",
-      "category": "Admin",
+      "category": "Images",
       "level": "",
       "semester": "",
       "keywords": ["admission", "matriculation", "offer of admission"]
@@ -60,7 +61,7 @@
       "id": "req_registration",
       "name": "Registration Confirmation",
       "description": "Proof of course registration for the semester.",
-      "category": "Docket",
+      "category": "ClassPDFs",
       "level": "",
       "semester": "",
       "keywords": ["registration", "enrolment", "enrollment", "course form"]
@@ -72,11 +73,11 @@
   "documentSchema": {
     "id": null,
     "name": "",
-    "category": "Receipt",
-    "level": "100L",
-    "semester": "First",
+    "category": "",
+    "level": "",
+    "semester": "",
     "course": "",
-    "referenceType": "RRR",
+    "referenceType": "",
     "referenceNumber": "",
     "amount": 0,
     "date": "",

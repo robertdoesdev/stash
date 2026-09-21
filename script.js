@@ -50,10 +50,11 @@ async function loadConfig() {
         acceptedExtensions: ['.pdf', '.jpg', '.jpeg', '.png']
       },
       categories: [
-        { id: 'Receipt', label: 'Receipt', badge: 'RCT', color: 'accent', keywords: ['receipt', 'payment', 'paid', 'invoice', 'fee'] },
-        { id: 'Docket', label: 'Docket', badge: 'DKT', color: 'accent-2', keywords: ['docket', 'slip', 'registration'] },
-        { id: 'Admin', label: 'Admin', badge: 'ADM', color: 'accent-3', keywords: ['admission', 'clearance', 'transcript'] }
+        { id: 'Receipts', label: 'Receipts / Invoices', badge: 'RCT', color: 'accent', keywords: ['receipt', 'payment', 'paid', 'invoice', 'fee'] },
+        { id: 'ClassPDFs', label: 'Class PDFs', badge: 'PDF', color: 'accent-2', keywords: ['lecture', 'syllabus', 'course outline'] },
+        { id: 'Images', label: 'Images', badge: 'IMG', color: 'accent-3', keywords: ['photo', 'scan'] }
       ],
+      categoryMigration: { Receipt: 'Receipts', Docket: 'ClassPDFs', Admin: 'Images' },
       levels: ['100L', '200L', '300L', '400L', '500L'],
       semesters: ['First', 'Second'],
       referenceTypes: ['RRR', 'Receipt No.', 'Invoice No.', 'Reference No.', 'Other'],
@@ -195,6 +196,48 @@ async function ocrPdfFirstPage(pdf) {
   await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
   const { data } = await Tesseract.recognize(canvas, 'eng');
   return (data.text || '').trim();
+}
+
+// Renders a PDF's pages as stacked canvases inside the given pane — an
+// in-app preview using the existing pdf.js library, instead of handing
+// the file off to the browser's native PDF viewer (which navigates away
+// or triggers a download depending on the browser).
+async function renderPdfIntoPane(pane, blob) {
+  if (typeof pdfjsLib === 'undefined') {
+    pane.innerHTML = `<div class="doc-preview-placeholder"><i data-ic="file"></i><p>PDF preview engine unavailable offline.</p></div>`;
+    renderIcons(pane);
+    return;
+  }
+  pane.innerHTML = `<div class="pdf-preview-scroll" id="pdfPreviewScroll"></div>`;
+  const scrollEl = document.getElementById('pdfPreviewScroll');
+  try {
+    const buf = await blob.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    const pageCount = Math.min(pdf.numPages, 30); // sane cap so a huge PDF can't hang the preview
+    const targetWidth = Math.max(200, scrollEl.clientWidth || 380);
+
+    for (let i = 1; i <= pageCount; i++) {
+      const page = await pdf.getPage(i);
+      const unscaled = page.getViewport({ scale: 1 });
+      const scale = Math.min(2.5, targetWidth / unscaled.width);
+      const viewport = page.getViewport({ scale });
+      const canvas = document.createElement('canvas');
+      canvas.className = 'pdf-page-canvas';
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      scrollEl.appendChild(canvas);
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+    }
+    if (pdf.numPages > pageCount) {
+      const note = document.createElement('p');
+      note.className = 'muted pdf-preview-note';
+      note.textContent = `Showing the first ${pageCount} of ${pdf.numPages} pages. Download to view all.`;
+      scrollEl.appendChild(note);
+    }
+  } catch (e) {
+    pane.innerHTML = `<div class="doc-preview-placeholder"><i data-ic="file"></i><p>Couldn't render this PDF for preview. You can still download it below.</p></div>`;
+    renderIcons(pane);
+  }
 }
 
 const Extractor = {
@@ -344,22 +387,42 @@ const Extractor = {
   },
 
   // Looks for a short, confident-looking document title near the top of
-  // the extracted text (mostly-uppercase or title-cased, a handful of
-  // words). Returns '' rather than guessing when nothing looks credible —
-  // this only ever feeds a filename *suggestion*, never a forced rename.
+  // the extracted text. Accepts uppercase, title-case, or a short
+  // sentence-case line — but stays conservative: anything that looks
+  // like a labeled field, address, date, phone/reference number, or a
+  // run of body prose is rejected. Returns '' rather than guessing when
+  // nothing looks credible — this only ever feeds a filename
+  // *suggestion*, never a forced rename.
   findHeading(text) {
-    const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean).slice(0, 8);
+    const smallWords = new Set(['of', 'and', 'the', 'for', 'in', 'on', 'a', 'an', 'to']);
+    const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean).slice(0, 10);
+
     for (const line of lines) {
       if (line.length < 6 || line.length > 60) continue;
       const words = line.split(/\s+/).filter(Boolean);
       if (words.length < 2 || words.length > 8) continue;
       if (!/[A-Za-z]/.test(line)) continue;
-      if (/\d{4,}/.test(line)) continue; // looks like a reference/account number line, not a title
+
+      // Exclusions: things that are clearly not a document title.
+      if (/\d{4,}/.test(line)) continue;                    // reference/account/phone-shaped
+      if (/^\d/.test(line)) continue;                        // starts with a digit — date/address/reference
+      if (/@|https?:\/\/|www\./i.test(line)) continue;       // email/url
+      if (/:\s*\S/.test(line) && /\d/.test(line)) continue;  // a labeled field, e.g. "Date: 12/03/2024"
+      if (/\b(street|st\.?|road|rd\.?|avenue|ave\.?|close|crescent|drive|lane)\b/i.test(line)) continue; // address
+      if (/^[A-Z][a-zA-Z'-]*,\s*[A-Z]/.test(line) && words.length <= 4) continue; // "City, State" style locale line
+      if ((line.match(/\d/g) || []).length > 3) continue;    // too many stray digits for a clean title
+      if (/[.!?]\s+[A-Z]/.test(line)) continue;               // multiple sentences — this is prose, not a title
+
       const alpha = line.replace(/[^A-Za-z]/g, '');
-      if (!alpha.length) continue;
+      if (alpha.length < 5) continue; // not enough letters to judge casing confidently
       const upper = alpha.replace(/[^A-Z]/g, '');
       const isMostlyUpper = (upper.length / alpha.length) > 0.7;
-      if (isMostlyUpper) return line;
+
+      const significantWords = words.filter(w => !smallWords.has(w.toLowerCase()));
+      const capitalizedWords = significantWords.filter(w => /^[A-Z]/.test(w));
+      const isTitleCase = significantWords.length > 0 && capitalizedWords.length >= Math.ceil(significantWords.length * 0.7);
+
+      if (isMostlyUpper || isTitleCase) return line;
     }
     return '';
   },
@@ -492,6 +555,16 @@ const DB = {
           delete d.rrr;
         } catch (e) { /* leave this one as-is; it'll just show "no preview" */ }
       }
+      await this.saveDocuments(userId, docs);
+    }
+
+    // Migrate documents saved under the old category names (Receipt /
+    // Docket / Admin) to the current category IDs. Old documents keep
+    // their category — the meaning is preserved, only the ID changes.
+    const catMap = CONFIG.categoryMigration || {};
+    const needsCatMigration = docs.filter(d => d.category && catMap[d.category]);
+    if (needsCatMigration.length) {
+      needsCatMigration.forEach(d => { d.category = catMap[d.category]; });
       await this.saveDocuments(userId, docs);
     }
 
@@ -665,6 +738,13 @@ function formatFileSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function formatMB(mb) {
+  if (!mb) return '0 MB';
+  if (mb < 1) return `${mb.toFixed(2)} MB`;
+  if (mb < 10) return `${mb.toFixed(1)} MB`;
+  return `${Math.round(mb)} MB`;
+}
+
 function toTitleCase(str) {
   return str.toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase());
 }
@@ -822,19 +902,23 @@ const Views = {
   populateSelect(select, values, { withEmpty = false, emptyLabel = 'All' } = {}) {
     if (!select) return;
     select.innerHTML = (withEmpty ? `<option value="">${emptyLabel}</option>` : '') +
-      values.map(v => `<option value="${v}">${v}</option>`).join('');
+      values.map(v => {
+        const value = (v && typeof v === 'object') ? v.value : v;
+        const label = (v && typeof v === 'object') ? v.label : v;
+        return `<option value="${escapeHTML(value)}">${escapeHTML(label)}</option>`;
+      }).join('');
   },
 
   populateStaticSelects() {
     const levels = CONFIG.levels;
     const semesters = CONFIG.semesters;
-    const categories = CONFIG.categories.map(c => c.id);
+    const categories = CONFIG.categories.map(c => ({ value: c.id, label: c.label }));
 
     this.populateSelect(document.getElementById('suLevel'), levels);
-    this.populateSelect(document.getElementById('editLevel'), levels);
-    this.populateSelect(document.getElementById('editSemester'), semesters);
-    this.populateSelect(document.getElementById('editCategory'), categories);
-    this.populateSelect(document.getElementById('editReferenceType'), CONFIG.referenceTypes || ['Reference']);
+    this.populateSelect(document.getElementById('editLevel'), levels, { withEmpty: true, emptyLabel: '\u2014 Not set \u2014' });
+    this.populateSelect(document.getElementById('editSemester'), semesters, { withEmpty: true, emptyLabel: '\u2014 Not set \u2014' });
+    this.populateSelect(document.getElementById('editCategory'), categories, { withEmpty: true, emptyLabel: '\u2014 Not set \u2014' });
+    this.populateSelect(document.getElementById('editReferenceType'), CONFIG.referenceTypes || ['Reference'], { withEmpty: true, emptyLabel: '\u2014 Not set \u2014' });
     this.populateSelect(document.getElementById('pLevel'), levels);
 
     this.populateSelect(document.getElementById('fLevel'), levels, { withEmpty: true, emptyLabel: 'All levels' });
@@ -844,21 +928,43 @@ const Views = {
     this.populateSelect(document.getElementById('ceSemester'), semesters, { withEmpty: true, emptyLabel: 'All semesters' });
   },
 
-  categoryMeta(id) { return CONFIG.categories.find(c => c.id === id) || CONFIG.categories[0]; },
+  categoryMeta(id) {
+    return CONFIG.categories.find(c => c.id === id) || { id: '', label: 'Uncategorized', badge: '\u2014', color: 'muted' };
+  },
 
   async storageStats(userId) {
     const user = await Auth.currentUser();
     const docs = await DB.getDocuments(userId);
     const limits = Plans.limits(user);
-    const usedBytes = docs.reduce((sum, d) => sum + (d.size || 0), 0);
-    const usedMB = Math.round((usedBytes / (1024 * 1024)) * 10) / 10;
+
+    // The stored file size is the source of truth. If a document's
+    // recorded size is missing or zero but the file actually exists in
+    // IndexedDB, verify against the real blob size instead of silently
+    // counting it as zero.
+    const sizes = await Promise.all(docs.map(async d => {
+      if (d.size) return d.size;
+      if (d.hasFile) {
+        const blob = await FileStore.get(d.id).catch(() => null);
+        return blob ? blob.size : 0;
+      }
+      return 0;
+    }));
+    const usedBytes = sizes.reduce((a, b) => a + b, 0);
+    const usedMB = usedBytes / (1024 * 1024);
     const quotaMB = limits.maxStorageMB;
-    const pct = quotaMB ? Math.min(100, Math.round((usedMB / quotaMB) * 100)) : 0;
+
+    // Keep real precision. Rounding a genuinely tiny-but-real usage to a
+    // flat integer percentage would make a real 5MB upload show as "0%".
+    const rawPct = quotaMB ? Math.min(100, (usedMB / quotaMB) * 100) : 0;
+    const pct = usedBytes === 0 ? 0 : Math.max(0.1, Math.round(rawPct * 10) / 10);
+
     return {
-      docs, usedBytes, usedMB, quotaMB, pct,
+      docs, usedBytes,
+      usedMB: Math.round(usedMB * 100) / 100,
+      quotaMB, pct,
       docCount: docs.length,
       maxDocuments: limits.maxDocuments,
-      remainingMB: quotaMB ? Math.max(0, Math.round((quotaMB - usedMB) * 10) / 10) : Infinity,
+      remainingMB: quotaMB ? Math.max(0, Math.round((quotaMB - usedMB) * 100) / 100) : Infinity,
       remainingDocs: limits.maxDocuments ? Math.max(0, limits.maxDocuments - docs.length) : Infinity
     };
   },
@@ -914,7 +1020,7 @@ const Views = {
     const legend = document.getElementById('ringLegend');
     legend.innerHTML = CONFIG.categories.map(c => {
       const count = docs.filter(d => d.category === c.id).length;
-      return `<div><i class="dot dot-${c.color}"></i>${c.label}s <span>${count}</span></div>`;
+      return `<div><i class="dot dot-${c.color}"></i>${escapeHTML(c.label)} <span>${count}</span></div>`;
     }).join('');
 
     document.getElementById('recentList').innerHTML = docs.length
@@ -1008,7 +1114,7 @@ const Views = {
 
     const line = document.getElementById('uploadCapacityLine');
     if (line) {
-      const storagePart = remainingMB === Infinity ? 'Unlimited storage' : `${remainingMB}MB of ${quotaMB >= 1024 ? (quotaMB / 1024).toFixed(1) + 'GB' : quotaMB + 'MB'} left`;
+      const storagePart = remainingMB === Infinity ? 'Unlimited storage' : `${formatMB(remainingMB)} of ${quotaMB >= 1024 ? (quotaMB / 1024).toFixed(1) + 'GB' : quotaMB + 'MB'} left`;
       const docsPart = remainingDocs === Infinity ? 'unlimited documents' : `${remainingDocs} document${remainingDocs === 1 ? '' : 's'} left on your plan`;
       line.textContent = `${storagePart} \u00b7 ${docsPart}`;
     }
@@ -1114,8 +1220,8 @@ const Views = {
     const { pct, usedMB, quotaMB, docCount, maxDocuments } = await this.storageStats(user.id);
     document.getElementById('profileStorageFill').style.width = pct + '%';
     document.getElementById('storageDetailText').textContent = quotaMB >= 1024
-      ? `${pct}% used \u00b7 ${usedMB}MB of ${(quotaMB / 1024).toFixed(1)}GB \u00b7 ${docCount}${maxDocuments ? '/' + maxDocuments : ''} documents`
-      : `${pct}% used \u00b7 ${usedMB}MB of ${quotaMB}MB \u00b7 ${docCount}${maxDocuments ? '/' + maxDocuments : ''} documents`;
+      ? `${pct}% used \u00b7 ${formatMB(usedMB)} of ${(quotaMB / 1024).toFixed(1)}GB \u00b7 ${docCount}${maxDocuments ? '/' + maxDocuments : ''} documents`
+      : `${pct}% used \u00b7 ${formatMB(usedMB)} of ${quotaMB}MB \u00b7 ${docCount}${maxDocuments ? '/' + maxDocuments : ''} documents`;
     const warning = document.getElementById('storageWarning');
     if (warning) {
       if (pct >= 90) {
@@ -1309,11 +1415,18 @@ const DocModal = {
     renderIcons(pane);
 
     if (doc.hasFile) {
-      const url = await FileStore.getObjectURL(id).catch(() => null);
-      if (url && (doc.fileType || '').startsWith('image/')) {
-        pane.innerHTML = `<img src="${url}" alt="${escapeHTML(doc.name)}">`;
-      } else if (url && doc.fileType === 'application/pdf') {
-        pane.innerHTML = `<embed src="${url}" type="application/pdf">`;
+      if ((doc.fileType || '').startsWith('image/')) {
+        const url = await FileStore.getObjectURL(id).catch(() => null);
+        pane.innerHTML = url
+          ? `<img src="${url}" alt="${escapeHTML(doc.name)}">`
+          : `<div class="doc-preview-placeholder"><i data-ic="file"></i><p>Could not load the image.</p></div>`;
+      } else if (doc.fileType === 'application/pdf') {
+        const blob = await FileStore.get(id).catch(() => null);
+        if (blob) {
+          await renderPdfIntoPane(pane, blob);
+        } else {
+          pane.innerHTML = `<div class="doc-preview-placeholder"><i data-ic="file"></i><p>Could not load the file.</p></div>`;
+        }
       } else {
         pane.innerHTML = `<div class="doc-preview-placeholder"><i data-ic="file"></i><p>No preview available for this file type.</p></div>`;
       }
@@ -1323,13 +1436,13 @@ const DocModal = {
     renderIcons(pane);
 
     document.getElementById('editName').value = doc.name || '';
-    document.getElementById('editReferenceType').value = doc.referenceType || 'RRR';
+    document.getElementById('editReferenceType').value = doc.referenceType || '';
     document.getElementById('editReferenceNumber').value = doc.referenceNumber || '';
     document.getElementById('editAmount').value = doc.amount || '';
     document.getElementById('editDate').value = doc.date || '';
-    document.getElementById('editCategory').value = doc.category || 'Receipt';
-    document.getElementById('editLevel').value = doc.level || '100L';
-    document.getElementById('editSemester').value = doc.semester || 'First';
+    document.getElementById('editCategory').value = doc.category || '';
+    document.getElementById('editLevel').value = doc.level || '';
+    document.getElementById('editSemester').value = doc.semester || '';
     document.getElementById('editCourse').value = doc.course || '';
 
     // "Detected"/"suggested" tags — only shown for fields the extractor
@@ -1375,19 +1488,18 @@ const DocModal = {
     const ocrBox = document.getElementById('ocrTextBox');
     const rerunBtn = document.getElementById('rerunOcrBtn');
     const copyBtn = document.getElementById('copyOcrTextBtn');
+    const ocrTextarea = document.getElementById('ocrTextContent');
+    const statusLabel = document.getElementById('ocrStatusLabel');
 
-    if (doc.ocrStatus === 'native' && doc.ocrText) {
+    if (doc.hasFile) {
       ocrBox.classList.remove('hidden');
-      document.getElementById('ocrTextContent').textContent = doc.ocrText;
-      document.getElementById('ocrStatusLabel').textContent = 'Text extracted from PDF (no scan needed)';
-    } else if (doc.ocrStatus === 'done' && doc.ocrText) {
-      ocrBox.classList.remove('hidden');
-      document.getElementById('ocrTextContent').textContent = doc.ocrText;
-      document.getElementById('ocrStatusLabel').textContent = 'Text detected on scan \u2014 may not be perfectly accurate';
-    } else if (doc.ocrStatus === 'failed') {
-      ocrBox.classList.remove('hidden');
-      document.getElementById('ocrTextContent').textContent = 'Scan didn\u2019t return readable text. You can fill in the fields above manually, or try again.';
-      document.getElementById('ocrStatusLabel').textContent = 'Scan unavailable';
+      // The textarea is the editable, persisted value — never overwrite it
+      // with explanatory prose. Status/explanation is shown in the label.
+      ocrTextarea.value = doc.ocrText || '';
+      if (doc.ocrStatus === 'native') statusLabel.textContent = 'Text extracted from PDF (no scan needed)';
+      else if (doc.ocrStatus === 'done') statusLabel.textContent = 'Text detected on scan \u2014 may not be perfectly accurate';
+      else if (doc.ocrStatus === 'failed') statusLabel.textContent = 'Scan didn\u2019t find readable text \u2014 you can type it in manually below';
+      else statusLabel.textContent = doc.ocrText ? 'Edited text' : 'No text extracted yet';
     } else {
       ocrBox.classList.add('hidden');
     }
@@ -1431,6 +1543,7 @@ const DocModal = {
       level: document.getElementById('editLevel').value,
       semester: document.getElementById('editSemester').value,
       course: document.getElementById('editCourse').value.trim(),
+      ocrText: document.getElementById('ocrTextContent').value,
       modifiedAt: new Date().toISOString()
     };
 
@@ -1495,6 +1608,9 @@ const DocModal = {
     if (idx === -1) return;
     const doc = docs[idx];
     if (!doc.hasFile) { UI.toast('Original file isn\u2019t available on this device'); return; }
+    if (doc.ocrText && doc.ocrText.trim()) {
+      if (!confirm('Rerunning OCR will replace the current text with a fresh scan. Continue?')) return;
+    }
 
     const rerunBtn = document.getElementById('rerunOcrBtn');
     const resetBtn = () => { if (rerunBtn) { rerunBtn.disabled = false; rerunBtn.textContent = 'Rerun OCR'; } };
@@ -1552,6 +1668,9 @@ const DocModal = {
     if (!doc.institution && found.institution) { patch.institution = found.institution; newlyDetected.push('institution'); }
     if (!doc.extractedStudentId && found.studentId) { patch.extractedStudentId = found.studentId; newlyDetected.push('extractedStudentId'); }
     if (!doc.academicSession && found.academicSession) { patch.academicSession = found.academicSession; newlyDetected.push('academicSession'); }
+    if (!doc.level && found.level) { patch.level = found.level; newlyDetected.push('level'); }
+    if (!doc.semester && found.semester) { patch.semester = found.semester; newlyDetected.push('semester'); }
+    if (!doc.category && found.category) { patch.category = found.category; newlyDetected.push('category'); }
     if (newlyDetected.length) patch.autoFilled = [...new Set([...(doc.autoFilled || []), ...newlyDetected])];
 
     docs[idx] = { ...doc, ...patch };
@@ -1570,7 +1689,7 @@ const DocModal = {
   },
 
   copyOcrText() {
-    const text = document.getElementById('ocrTextContent').textContent;
+    const text = document.getElementById('ocrTextContent').value;
     if (!text) return;
     navigator.clipboard?.writeText(text).then(() => UI.toast('Text copied')).catch(() => UI.toast('Copy manually \u2014 clipboard blocked'));
   },
@@ -1773,7 +1892,6 @@ const Documents = {
     if (!user) return;
     const files = Array.from(fileList);
     const settings = await DB.getSettings(user.id);
-    const profile = await DB.getProfile(user.id);
     const limits = Plans.limits(user);
     const maxFileBytes = (CONFIG.upload.maxFileSizeMB || 10) * 1024 * 1024;
     const quotaBytes = limits.maxStorageMB ? limits.maxStorageMB * 1024 * 1024 : Infinity;
@@ -1897,11 +2015,11 @@ const Documents = {
         id,
         name: suggestedName || originalBaseName,
         originalFilename: file.name,
-        category: found.category || 'Receipt',
-        level: found.level || profile.level || CONFIG.levels[0],
-        semester: found.semester || CONFIG.semesters[0],
+        category: found.category || '',
+        level: found.level || '',
+        semester: found.semester || '',
         course: '',
-        referenceType: found.referenceType || 'RRR',
+        referenceType: found.referenceType || '',
         referenceNumber: found.referenceNumber || '',
         amount: Number(found.amount) || 0,
         date: found.date || '',

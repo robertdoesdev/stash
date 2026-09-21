@@ -381,15 +381,21 @@ button { cursor: pointer; }
   background: var(--panel-alt);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
+  height: 70vh;
+  max-height: 600px;
   min-height: 320px;
-  max-height: 70vh;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
 }
-.doc-preview-pane img { max-width: 100%; max-height: 70vh; width: auto; height: auto; object-fit: contain; display: block; }
-.doc-preview-pane embed { width: 100%; height: 70vh; max-height: 500px; }
+.doc-preview-pane img { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; display: block; }
+.pdf-preview-scroll {
+  width: 100%; height: 100%; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 14px; box-sizing: border-box;
+}
+.pdf-page-canvas { max-width: 100%; height: auto; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25); border-radius: 4px; display: block; }
+.pdf-preview-note { text-align: center; font-size: 12px; padding: 8px 0; }
 .doc-preview-placeholder { text-align: center; color: var(--muted); padding: 30px; }
 .doc-preview-placeholder i[data-ic] { width: 32px; height: 32px; display: inline-flex; margin-bottom: 10px; }
 
@@ -404,6 +410,12 @@ button { cursor: pointer; }
   overflow-y: auto;
 }
 .ocr-text-box p { font-size: 12px; color: var(--muted); line-height: 1.5; margin-top: 4px; white-space: pre-wrap; }
+.ocr-text-box textarea {
+  width: 100%; margin-top: 8px; font-size: 12px; color: var(--text); line-height: 1.5;
+  background: transparent; border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px; resize: vertical; min-height: 70px; font-family: inherit;
+}
+.ocr-text-box textarea:focus { outline: none; border-color: var(--accent); }
 .ocr-text-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .ocr-text-actions { display: flex; gap: 12px; flex-shrink: 0; }
 .ocr-text-actions .link-btn { font-size: 12px; }
@@ -431,9 +443,7 @@ button { cursor: pointer; }
   .modal-back-btn { background: none; border: none; color: var(--accent); font-size: 14px; font-weight: 600; padding: 4px 0; }
   #docModal .modal-close { display: none; } /* the mobile header back button replaces it */
   .doc-modal-grid { grid-template-columns: 1fr; }
-  .doc-preview-pane { min-height: 180px; max-height: 45vh; }
-  .doc-preview-pane img { max-height: 45vh; }
-  .doc-preview-pane embed { height: 45vh; max-height: 380px; }
+  .doc-preview-pane { height: 45vh; max-height: 380px; min-height: 180px; }
 }
 
 /* =========================================================
@@ -517,6 +527,7 @@ body.light-mode .theme-toggle .icon-sun { display: none; }
 .dot-accent { background: var(--accent); }
 .dot-accent-2 { background: var(--accent-2); }
 .dot-accent-3 { background: var(--accent-3); }
+.dot-muted { background: var(--muted-dim); }
 
 /* Dashboard stat tiles are informational only — no hover/pointer affordance. */
 .stat-stack { display: flex; flex-direction: column; gap: 10px; padding: 12px; }
@@ -566,6 +577,7 @@ body.light-mode .theme-toggle .icon-sun { display: none; }
 .badge-accent { background: var(--accent); }
 .badge-accent-2 { background: var(--accent-2); color: #08221c; }
 .badge-accent-3 { background: var(--accent-3); color: #2b1a04; }
+.badge-muted { background: var(--panel-alt); color: var(--muted); border: 1px solid var(--border); }
 
 .doc-name { font-weight: 600; font-size: 14px; margin-bottom: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .doc-meta { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
