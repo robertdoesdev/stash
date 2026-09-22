@@ -11,7 +11,8 @@
   "upload": {
     "maxFileSizeMB": 10,
     "acceptedTypes": ["application/pdf", "image/jpeg", "image/jpg", "image/png"],
-    "acceptedExtensions": [".pdf", ".jpg", ".jpeg", ".png"]
+    "acceptedExtensions": [".pdf", ".jpg", ".jpeg", ".png"],
+    "maxOcrPdfPages": 5
   },
   "categories": [
     { "id": "Receipts", "label": "Receipts / Invoices", "badge": "RCT", "color": "accent", "keywords": ["receipt", "payment", "paid", "invoice", "fee", "fees", "transaction", "amount paid"] },

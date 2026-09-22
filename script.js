@@ -47,7 +47,8 @@ async function loadConfig() {
       upload: {
         maxFileSizeMB: 10,
         acceptedTypes: ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'],
-        acceptedExtensions: ['.pdf', '.jpg', '.jpeg', '.png']
+        acceptedExtensions: ['.pdf', '.jpg', '.jpeg', '.png'],
+        maxOcrPdfPages: 5
       },
       categories: [
         { id: 'Receipts', label: 'Receipts / Invoices', badge: 'RCT', color: 'accent', keywords: ['receipt', 'payment', 'paid', 'invoice', 'fee'] },
@@ -187,15 +188,98 @@ async function extractPdfText(file) {
   return { text: text.trim(), pdf };
 }
 
-async function ocrPdfFirstPage(pdf) {
-  const page = await pdf.getPage(1);
-  const viewport = page.getViewport({ scale: 2 });
-  const canvas = document.createElement('canvas');
-  canvas.width = viewport.width;
-  canvas.height = viewport.height;
-  await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-  const { data } = await Tesseract.recognize(canvas, 'eng');
-  return (data.text || '').trim();
+// Runs Tesseract with settings tuned for document/receipt text (a single
+// uniform block, rather than the default multi-column-aware mode), using
+// the explicit worker API so the page-segmentation mode actually applies.
+async function runTesseractOCR(image) {
+  const worker = await Tesseract.createWorker('eng');
+  try {
+    await worker.setParameters({ tessedit_pageseg_mode: '6' }); // assume a single uniform block of text
+    const { data } = await worker.recognize(image);
+    return (data.text || '').trim();
+  } finally {
+    await worker.terminate();
+  }
+}
+
+// Basic, dependency-free preprocessing to help Tesseract on photographed
+// receipts: upscale small images (more pixels for the recognizer to work
+// with), convert to grayscale, and stretch contrast so faint text stands
+// out — without the aggressive thresholding that destroys thin strokes.
+// Drawing through <img>/canvas already respects EXIF orientation in
+// current browsers, so no separate rotation step is needed here.
+function preprocessImageForOCR(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      try {
+        const { width, height } = img;
+        const minDimension = 1200; // upscale small photos for better recognition
+        const maxDimension = 3000; // cap so a huge photo can't hang the browser
+        let scale = 1;
+        if (Math.max(width, height) < minDimension) scale = minDimension / Math.max(width, height);
+        if (Math.max(width, height) * scale > maxDimension) scale = maxDimension / Math.max(width, height);
+
+        const targetW = Math.max(1, Math.round(width * scale));
+        const targetH = Math.max(1, Math.round(height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = targetW;
+        canvas.height = targetH;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, targetW, targetH);
+
+        const imageData = ctx.getImageData(0, 0, targetW, targetH);
+        const d = imageData.data;
+        let min = 255, max = 0;
+        for (let i = 0; i < d.length; i += 4) {
+          const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+          d[i] = d[i + 1] = d[i + 2] = gray;
+          if (gray < min) min = gray;
+          if (gray > max) max = gray;
+        }
+        const range = Math.max(1, max - min); // avoid divide-by-zero on a flat/blank image
+        for (let i = 0; i < d.length; i += 4) {
+          const stretched = ((d[i] - min) / range) * 255;
+          d[i] = d[i + 1] = d[i + 2] = stretched;
+        }
+        ctx.putImageData(imageData, 0, 0);
+        resolve(canvas);
+      } catch (e) {
+        reject(e);
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+    img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error('Could not load image for preprocessing')); };
+    img.src = objectUrl;
+  });
+}
+
+// OCRs a scanned PDF (no usable text layer) page by page, up to a
+// configurable limit so a huge document can't freeze the browser or
+// silently consume unbounded OCR resources. Pages are combined in order;
+// if the document has more pages than the limit, that's reported back
+// rather than silently pretending the whole thing was processed.
+async function ocrScannedPdf(pdf, maxPages) {
+  const pageCount = Math.min(pdf.numPages, maxPages);
+  const parts = [];
+  for (let i = 1; i <= pageCount; i++) {
+    const page = await pdf.getPage(i);
+    const viewport = page.getViewport({ scale: 2 });
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+    const pageText = await runTesseractOCR(canvas);
+    if (pageText) parts.push(pageText);
+  }
+  return {
+    text: parts.join('\n\n').trim(),
+    pagesProcessed: pageCount,
+    totalPages: pdf.numPages,
+    truncated: pdf.numPages > pageCount
+  };
 }
 
 // Renders a PDF's pages as stacked canvases inside the given pane — an
@@ -387,34 +471,40 @@ const Extractor = {
   },
 
   // Looks for a short, confident-looking document title near the top of
-  // the extracted text. Accepts uppercase, title-case, or a short
-  // sentence-case line — but stays conservative: anything that looks
-  // like a labeled field, address, date, phone/reference number, or a
-  // run of body prose is rejected. Returns '' rather than guessing when
-  // nothing looks credible — this only ever feeds a filename
-  // *suggestion*, never a forced rename.
+  // the extracted text, using a confidence score rather than a rigid
+  // casing rule — position near the top, short length, title-like
+  // casing, and document-title vocabulary ("receipt", "form", etc.) all
+  // add confidence; things that look like a labeled field, address,
+  // date, phone/reference number, or body prose are excluded outright.
+  // Returns '' when nothing clears the confidence threshold — this only
+  // ever feeds a filename suggestion, never a forced rename on weak
+  // evidence.
   findHeading(text) {
     const smallWords = new Set(['of', 'and', 'the', 'for', 'in', 'on', 'a', 'an', 'to']);
-    const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean).slice(0, 10);
+    const titleVocabulary = ['receipt', 'invoice', 'certificate', 'letter', 'form', 'registration', 'statement', 'transcript', 'admission', 'clearance', 'confirmation', 'notice', 'slip', 'record', 'report', 'card', 'schedule', 'result', 'syllabus', 'outline'];
+    const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean).slice(0, 12);
 
-    for (const line of lines) {
-      if (line.length < 6 || line.length > 60) continue;
+    let best = '', bestScore = 0;
+
+    lines.forEach((line, idx) => {
+      if (line.length < 6 || line.length > 60) return;
       const words = line.split(/\s+/).filter(Boolean);
-      if (words.length < 2 || words.length > 8) continue;
-      if (!/[A-Za-z]/.test(line)) continue;
+      if (words.length < 2 || words.length > 9) return;
+      if (!/[A-Za-z]/.test(line)) return;
 
-      // Exclusions: things that are clearly not a document title.
-      if (/\d{4,}/.test(line)) continue;                    // reference/account/phone-shaped
-      if (/^\d/.test(line)) continue;                        // starts with a digit — date/address/reference
-      if (/@|https?:\/\/|www\./i.test(line)) continue;       // email/url
-      if (/:\s*\S/.test(line) && /\d/.test(line)) continue;  // a labeled field, e.g. "Date: 12/03/2024"
-      if (/\b(street|st\.?|road|rd\.?|avenue|ave\.?|close|crescent|drive|lane)\b/i.test(line)) continue; // address
-      if (/^[A-Z][a-zA-Z'-]*,\s*[A-Z]/.test(line) && words.length <= 4) continue; // "City, State" style locale line
-      if ((line.match(/\d/g) || []).length > 3) continue;    // too many stray digits for a clean title
-      if (/[.!?]\s+[A-Z]/.test(line)) continue;               // multiple sentences — this is prose, not a title
+      // Hard exclusions — these disqualify a line outright regardless of score.
+      if (/\d{4,}/.test(line)) return;                       // reference/account/phone-shaped
+      if (/^\d/.test(line)) return;                           // starts with a digit — date/address/reference
+      if (/@|https?:\/\/|www\./i.test(line)) return;          // email/url
+      if (/:\s*\S/.test(line) && /\d/.test(line)) return;     // a labeled field, e.g. "Date: 12/03/2024"
+      if (/\b(street|st\.?|road|rd\.?|avenue|ave\.?|close|crescent|drive|lane)\b/i.test(line)) return; // address
+      if (/^[A-Z][a-zA-Z'-]*,\s*[A-Z]/.test(line) && words.length <= 4) return; // "City, State" style locale line
+      if ((line.match(/\d/g) || []).length > 3) return;       // too many stray digits for a clean title
+      if (/[.!?]\s+[A-Z]/.test(line)) return;                  // multiple sentences — prose, not a title
+      if (!words.some(w => w.replace(/[^A-Za-z]/g, '').length >= 5)) return; // needs at least one real word, not just short abbreviations
 
       const alpha = line.replace(/[^A-Za-z]/g, '');
-      if (alpha.length < 5) continue; // not enough letters to judge casing confidently
+      if (alpha.length < 5) return; // not enough letters to judge casing confidently
       const upper = alpha.replace(/[^A-Z]/g, '');
       const isMostlyUpper = (upper.length / alpha.length) > 0.7;
 
@@ -422,46 +512,91 @@ const Extractor = {
       const capitalizedWords = significantWords.filter(w => /^[A-Z]/.test(w));
       const isTitleCase = significantWords.length > 0 && capitalizedWords.length >= Math.ceil(significantWords.length * 0.7);
 
-      if (isMostlyUpper || isTitleCase) return line;
-    }
-    return '';
+      // Casing is a hard requirement, not just a scoring input — otherwise
+      // vocabulary + position alone could let plain lowercase prose (e.g.
+      // "this receipt confirms that payment has been received") through.
+      // The score below only ranks among lines that already look like a
+      // real heading, choosing the best candidate rather than just the
+      // first line that happens to match.
+      if (!isMostlyUpper && !isTitleCase) return;
+
+      let score = 0;
+      score += Math.max(0, 4 - idx);          // position near the top is a strong signal
+      if (words.length <= 6) score += 2;       // short, title-length lines
+      else score += 1;                          // still plausible up to 9 words, just less confident
+      if (isMostlyUpper) score += 3;
+      if (isTitleCase) score += 3;
+      if (titleVocabulary.some(v => line.toLowerCase().includes(v))) score += 2; // document-title vocabulary
+
+      if (score > bestScore) { bestScore = score; best = line; }
+    });
+
+    return bestScore >= 6 ? best : '';
   },
 
   // A category is only suggested when one category clearly leads on
   // keyword evidence — at least two distinct keyword hits, and not tied
   // with the runner-up. A single incidental word is not enough evidence.
-  guessCategory(text, categories) {
-    const lower = text.toLowerCase();
-    const scored = categories.map(cat => ({
-      id: cat.id,
-      score: (cat.keywords || []).reduce((s, k) => s + (lower.includes(k.toLowerCase()) ? 1 : 0), 0)
-    })).sort((a, b) => b.score - a.score);
-    const top = scored[0];
-    const runnerUp = scored[1];
-    if (!top || top.score < 2) return '';
-    if (runnerUp && runnerUp.score === top.score) return '';
-    return top.id;
+  // Category priority: (1) strong Receipts/Invoices evidence — either
+  // multiple keyword hits, or one strong signal (an amount and a
+  // reference number together, or a keyword hit alongside either) —
+  // (2) strong Class PDFs evidence, where being a PDF itself counts as a
+  // supporting signal alongside at least one content keyword, (3) a
+  // plain image with no stronger evidence falls back to Images, (4)
+  // otherwise left blank. The three category IDs are referenced directly
+  // because this priority logic is specific to what each of Stash's
+  // three categories means; the keyword word-lists themselves stay fully
+  // configurable via data.json.
+  guessCategory(text, categories, { amount, referenceNumber, isPdf, isImage } = {}) {
+    const lower = (text || '').toLowerCase();
+    const scoreFor = id => {
+      const cat = categories.find(c => c.id === id);
+      if (!cat) return 0;
+      return (cat.keywords || []).reduce((s, k) => s + (lower.includes(k.toLowerCase()) ? 1 : 0), 0);
+    };
+
+    const receiptScore = scoreFor('Receipts');
+    const classScore = scoreFor('ClassPDFs');
+
+    const strongReceipt = receiptScore >= 2 || (receiptScore >= 1 && (amount || referenceNumber)) || (amount && referenceNumber);
+    if (strongReceipt) return 'Receipts';
+
+    const strongClass = classScore >= 2 || (isPdf && classScore >= 1);
+    if (strongClass) return 'ClassPDFs';
+
+    if (isImage) return 'Images';
+
+    return '';
   },
 
   // Runs every extractor against a block of text and returns only the
   // fields it found reasonable evidence for. Anything not found comes
-  // back as '' rather than a guess — never invented.
-  analyze(text) {
-    if (!text || !text.trim()) return {};
+  // back as '' rather than a guess — never invented. Category is the one
+  // field that can still get a value with no text at all (a plain image
+  // file falls back to "Images" on file type alone).
+  analyze(text, fileType) {
     const cfg = CONFIG.extraction || {};
-    const ref = this.findReference(text, cfg);
-    return {
-      amount: this.findAmount(text),
-      date: this.findDate(text),
+    const hasText = !!(text && text.trim());
+    const ref = hasText ? this.findReference(text, cfg) : { referenceNumber: '', referenceType: '' };
+
+    const result = {
+      amount: hasText ? this.findAmount(text) : '',
+      date: hasText ? this.findDate(text) : '',
       referenceNumber: ref.referenceNumber,
       referenceType: ref.referenceType,
-      institution: this.findInstitution(text, cfg.institutionMarkers || []),
-      studentId: this.findStudentId(text, cfg.studentIdKeywords || []),
-      academicSession: this.findAcademicSession(text),
-      semester: this.findSemester(text, cfg.semesterKeywords || {}),
-      level: this.findLevel(text, CONFIG.levels || []),
-      category: this.guessCategory(text, CONFIG.categories || [])
+      institution: hasText ? this.findInstitution(text, cfg.institutionMarkers || []) : '',
+      studentId: hasText ? this.findStudentId(text, cfg.studentIdKeywords || []) : '',
+      academicSession: hasText ? this.findAcademicSession(text) : '',
+      semester: hasText ? this.findSemester(text, cfg.semesterKeywords || {}) : '',
+      level: hasText ? this.findLevel(text, CONFIG.levels || []) : ''
     };
+    result.category = this.guessCategory(hasText ? text : '', CONFIG.categories || [], {
+      amount: result.amount,
+      referenceNumber: result.referenceNumber,
+      isPdf: fileType === 'application/pdf',
+      isImage: (fileType || '').startsWith('image/')
+    });
+    return result;
   }
 };
 
@@ -740,8 +875,7 @@ function formatFileSize(bytes) {
 
 function formatMB(mb) {
   if (!mb) return '0 MB';
-  if (mb < 1) return `${mb.toFixed(2)} MB`;
-  if (mb < 10) return `${mb.toFixed(1)} MB`;
+  if (mb < 100) return `${mb.toFixed(2)} MB`;
   return `${Math.round(mb)} MB`;
 }
 
@@ -1115,7 +1249,7 @@ const Views = {
     const line = document.getElementById('uploadCapacityLine');
     if (line) {
       const storagePart = remainingMB === Infinity ? 'Unlimited storage' : `${formatMB(remainingMB)} of ${quotaMB >= 1024 ? (quotaMB / 1024).toFixed(1) + 'GB' : quotaMB + 'MB'} left`;
-      const docsPart = remainingDocs === Infinity ? 'unlimited documents' : `${remainingDocs} document${remainingDocs === 1 ? '' : 's'} left on your plan`;
+      const docsPart = remainingDocs === Infinity ? 'unlimited documents' : `${remainingDocs} document${remainingDocs === 1 ? '' : 's'} remaining`;
       line.textContent = `${storagePart} \u00b7 ${docsPart}`;
     }
 
@@ -1625,7 +1759,7 @@ const DocModal = {
       return { ok: true };
     };
 
-    let text = '', status = 'failed', source = doc.textSource;
+    let text = '', status = 'failed', source = doc.textSource, rerunPageNote = '';
     try {
       const blob = await FileStore.get(doc.id);
       if (!blob) { resetBtn(); UI.toast('Could not load the original file'); return; }
@@ -1638,7 +1772,10 @@ const DocModal = {
           const quota = await checkOcrQuota();
           if (!quota.ok) { resetBtn(); UI.toast(quota.message); return; }
           if (typeof Tesseract === 'undefined') { resetBtn(); UI.toast('OCR engine unavailable offline'); return; }
-          text = await ocrPdfFirstPage(pdf);
+          const maxPages = CONFIG.upload.maxOcrPdfPages || 5;
+          const scanned = await ocrScannedPdf(pdf, maxPages);
+          text = scanned.text;
+          if (scanned.truncated) rerunPageNote = `Scanned first ${scanned.pagesProcessed} of ${scanned.totalPages} pages`;
           await DB.incrementUsage(user.id, 'ocr').catch(() => {});
           status = text ? 'done' : 'failed';
           source = text ? 'ocr' : source;
@@ -1647,8 +1784,8 @@ const DocModal = {
         const quota = await checkOcrQuota();
         if (!quota.ok) { resetBtn(); UI.toast(quota.message); return; }
         if (typeof Tesseract === 'undefined') { resetBtn(); UI.toast('OCR engine unavailable offline'); return; }
-        const { data } = await Tesseract.recognize(blob, 'eng');
-        text = (data.text || '').trim();
+        const prepped = await preprocessImageForOCR(blob).catch(() => blob);
+        text = await runTesseractOCR(prepped);
         await DB.incrementUsage(user.id, 'ocr').catch(() => {});
         status = text ? 'done' : 'failed';
         source = text ? 'ocr' : source;
@@ -1659,7 +1796,7 @@ const DocModal = {
 
     // Only backfill fields the document doesn't already have — rerunning
     // OCR shouldn't overwrite something the student already reviewed/edited.
-    const found = Extractor.analyze(text);
+    const found = Extractor.analyze(text, doc.fileType);
     const patch = { ocrText: text, ocrStatus: status, textSource: source, modifiedAt: new Date().toISOString() };
     const newlyDetected = [];
     if (!doc.referenceNumber && found.referenceNumber) { patch.referenceNumber = found.referenceNumber; patch.referenceType = found.referenceType || doc.referenceType; newlyDetected.push('referenceNumber'); }
@@ -1683,7 +1820,7 @@ const DocModal = {
     }
 
     resetBtn();
-    UI.toast(text ? 'Scan complete' : 'Scan didn\u2019t find readable text');
+    UI.toast(text ? `Scan complete${rerunPageNote ? ' \u2014 ' + rerunPageNote : ''}` : 'Scan didn\u2019t find readable text');
     await this.open(this.currentId);
     await Views.filterDocuments();
   },
@@ -1958,7 +2095,7 @@ const Documents = {
         return source();
       };
 
-      let extractedText = '', ocrStatus = 'skipped', textSource = 'none';
+      let extractedText = '', ocrStatus = 'skipped', textSource = 'none', ocrPageNote = '';
 
       if (isPdf) {
         setStatus('Reading PDF text\u2026');
@@ -1970,11 +2107,15 @@ const Documents = {
             textSource = 'pdf';
           } else if (settings.ocrAutofill && typeof Tesseract !== 'undefined' && pdf) {
             setStatus('Scanning\u2026');
-            const scanned = await useOcr(() => ocrPdfFirstPage(pdf));
+            const maxPages = CONFIG.upload.maxOcrPdfPages || 5;
+            const scanned = await useOcr(() => ocrScannedPdf(pdf, maxPages));
             if (scanned != null) {
-              extractedText = scanned;
-              ocrStatus = scanned ? 'done' : 'failed';
-              textSource = scanned ? 'ocr' : 'none';
+              extractedText = scanned.text;
+              ocrStatus = scanned.text ? 'done' : 'failed';
+              textSource = scanned.text ? 'ocr' : 'none';
+              if (scanned.truncated) {
+                ocrPageNote = `Scanned first ${scanned.pagesProcessed} of ${scanned.totalPages} pages`;
+              }
             }
           }
         } catch (e) { ocrStatus = 'failed'; }
@@ -1982,8 +2123,8 @@ const Documents = {
         setStatus('Scanning\u2026');
         const scanned = await useOcr(async () => {
           try {
-            const { data } = await Tesseract.recognize(file, 'eng');
-            return (data.text || '').trim();
+            const prepped = await preprocessImageForOCR(file).catch(() => file); // fall back to the raw file if preprocessing fails
+            return await runTesseractOCR(prepped);
           } catch (e) { return ''; }
         });
         if (scanned != null) {
@@ -1993,7 +2134,7 @@ const Documents = {
         }
       }
 
-      const found = Extractor.analyze(extractedText);
+      const found = Extractor.analyze(extractedText, file.type);
       const heading = extractedText ? Extractor.findHeading(extractedText) : '';
       const suggestedName = heading ? sanitizeSuggestedName(toTitleCase(heading)) : '';
       const originalBaseName = file.name.replace(/\.[^.]+$/, '');
@@ -2040,7 +2181,8 @@ const Documents = {
       usedBytes += file.size;
       docCount++;
       addedCount++;
-      setStatus(ocrStatus === 'native' ? 'Saved \u00b7 text found' : (ocrStatus === 'done' ? 'Saved \u00b7 scanned' : 'Saved'), 'status-ok');
+      const savedLabel = ocrStatus === 'native' ? 'Saved \u00b7 text found' : (ocrStatus === 'done' ? 'Saved \u00b7 scanned' : 'Saved');
+      setStatus(ocrPageNote ? `${savedLabel} \u00b7 ${ocrPageNote}` : savedLabel, 'status-ok');
     }
 
     let saveFailed = false;
