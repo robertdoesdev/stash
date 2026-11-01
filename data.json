@@ -1,0 +1,151 @@
+{
+  "app": {
+    "name": "Stash",
+    "tagline": "Your school papers, sorted",
+    "cafePinExpiryMinutes": 10
+  },
+  "plans": {
+    "free": { "label": "Free", "maxDocuments": 50, "maxStorageMB": 2048, "ocrPerDay": 5 },
+    "pro": { "label": "Pro", "maxDocuments": null, "maxStorageMB": 20480, "ocrPerDay": null }
+  },
+  "upload": {
+    "maxFileSizeMB": 10,
+    "acceptedTypes": ["application/pdf", "image/jpeg", "image/jpg", "image/png"],
+    "acceptedExtensions": [".pdf", ".jpg", ".jpeg", ".png"],
+    "maxOcrPdfPages": 5
+  },
+  "categories": [
+    { "id": "Receipts", "label": "Receipts / Invoices", "badge": "RCT", "color": "accent", "keywords": ["receipt", "payment", "paid", "invoice", "fee", "fees", "transaction", "amount paid"] },
+    { "id": "ClassPDFs", "label": "Class PDFs", "badge": "PDF", "color": "accent-2", "keywords": ["lecture", "course outline", "syllabus", "assignment", "handout", "tutorial", "course material"] },
+    { "id": "Images", "label": "Images", "badge": "IMG", "color": "accent-3", "keywords": ["photo", "scan", "picture", "snapshot"] }
+  ],
+  "categoryMigration": { "Receipt": "Receipts", "Docket": "ClassPDFs", "Admin": "Images" },
+  "extraction": {
+    "institutionMarkers": ["university", "polytechnic", "college", "institute", "school of"],
+    "referenceKeywords": [
+      { "match": "rrr", "type": "RRR" },
+      { "match": "receipt no", "type": "Receipt No." },
+      { "match": "receipt number", "type": "Receipt No." },
+      { "match": "invoice no", "type": "Invoice No." },
+      { "match": "invoice number", "type": "Invoice No." },
+      { "match": "transaction id", "type": "Reference No." },
+      { "match": "reference no", "type": "Reference No." },
+      { "match": "reference number", "type": "Reference No." },
+      { "match": "ref no", "type": "Reference No." }
+    ],
+    "studentIdKeywords": ["matric no", "matriculation number", "matric number", "student id", "reg no", "registration number", "id no"],
+    "semesterKeywords": {
+      "First": ["first semester", "1st semester", "semester one", "semester 1", "fall semester"],
+      "Second": ["second semester", "2nd semester", "semester two", "semester 2", "spring semester"]
+    }
+  },
+  "clearanceRequirements": [
+    {
+      "id": "req_fees",
+      "name": "Tuition / School Fees Receipt",
+      "description": "Proof of tuition payment for the semester.",
+      "category": "Receipts",
+      "level": "",
+      "semester": "",
+      "keywords": ["tuition", "school fees", "fees receipt", "fee payment"]
+    },
+    {
+      "id": "req_admission",
+      "name": "Admission / Matriculation Letter",
+      "description": "Official admission or matriculation letter.",
+      "category": "Images",
+      "level": "",
+      "semester": "",
+      "keywords": ["admission", "matriculation", "offer of admission"]
+    },
+    {
+      "id": "req_registration",
+      "name": "Registration Confirmation",
+      "description": "Proof of course registration for the semester.",
+      "category": "ClassPDFs",
+      "level": "",
+      "semester": "",
+      "keywords": ["registration", "enrolment", "enrollment", "course form"]
+    }
+  ],
+  "levels": ["100L", "200L", "300L", "400L", "500L"],
+  "semesters": ["First", "Second"],
+  "referenceTypes": ["RRR", "Receipt No.", "Invoice No.", "Reference No.", "Other"],
+  "documentSchema": {
+    "id": null,
+    "name": "",
+    "category": "",
+    "level": "",
+    "semester": "",
+    "course": "",
+    "referenceType": "",
+    "referenceNumber": "",
+    "amount": 0,
+    "date": "",
+    "size": 0,
+    "fileType": "",
+    "uploadedAt": "",
+    "modifiedAt": "",
+    "ocrText": "",
+    "ocrStatus": "skipped",
+    "textSource": "none",
+    "institution": "",
+    "extractedStudentId": "",
+    "academicSession": ""
+  },
+  "profileSchema": {
+    "name": "",
+    "matric": "",
+    "email": "",
+    "department": "",
+    "level": "100L",
+    "avatar": null
+  },
+  "defaultProfile": {
+    "name": "",
+    "matric": "",
+    "email": "",
+    "department": "",
+    "level": "100L",
+    "avatar": null
+  },
+  "defaultSettings": {
+    "theme": "dark",
+    "offlineAccess": true,
+    "ocrAutofill": true
+  },
+  "pricing": {
+    "currency": "NGN",
+    "symbol": "\u20a6",
+    "paymentsLive": false,
+    "notice": "Payments aren\u2019t switched on yet, so every account runs on the free plan for now.",
+    "pendingNote": "What\u2019s included will be confirmed before payments open.",
+    "free": {
+      "label": "Free",
+      "highlights": ["Clearance checklist and summary PDF", "Cafe Print PINs for one document at a time"],
+      "limitsFrom": "plans.free"
+    },
+    "options": [
+      { "id": "semester", "label": "Per semester", "amountMinor": 200000, "entitlements": null },
+      { "id": "academic_level", "label": "Per academic level", "amountMinor": 500000, "entitlements": null }
+    ]
+  },
+  "faqs": [
+    {
+      "q": "Does Stash read every Remita receipt correctly?",
+      "a": "Scanning works best on clear, well-lit photos. You can always edit the RRR, amount or date before saving if the scan gets something wrong."
+    },
+    {
+      "q": "Can someone else open my files with a cafe PIN?",
+      "a": "A PIN opens only the one document you choose, and it expires after 10 minutes."
+    },
+    {
+      "q": "What happens if I lose network on campus?",
+      "a": "Stash needs a connection to load its scanning and PDF tools. Files you have already saved stay in this browser on this device."
+    },
+    {
+      "q": "How is my data stored?",
+      "a": "For now your documents and details are stored in this browser, on this device, and scanning runs on your device. Cloud storage and sync aren\u2019t available yet."
+    }
+  ]
+}

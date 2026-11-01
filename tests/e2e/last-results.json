@@ -1,0 +1,95 @@
+{
+ "total": 132,
+ "failed": 0,
+ "byTest": {
+  "01 not configured": {
+   "p": 3,
+   "f": 0
+  },
+  "02 signup validation": {
+   "p": 9,
+   "f": 0
+  },
+  "03 valid signup + verification gating": {
+   "p": 12,
+   "f": 0
+  },
+  "04 duplicate email (anti-enumeration)": {
+   "p": 4,
+   "f": 0
+  },
+  "05 email verification link": {
+   "p": 5,
+   "f": 0
+  },
+  "06 expired / invalid links": {
+   "p": 4,
+   "f": 0
+  },
+  "07 login + session persistence": {
+   "p": 9,
+   "f": 0
+  },
+  "08 remember-me off = this tab only": {
+   "p": 2,
+   "f": 0
+  },
+  "09 network failures": {
+   "p": 3,
+   "f": 0
+  },
+  "10 Google: new student -> onboarding": {
+   "p": 14,
+   "f": 0
+  },
+  "11 Google: matric already used + denied consent": {
+   "p": 2,
+   "f": 0
+  },
+  "12 Google user links to existing email account": {
+   "p": 1,
+   "f": 0
+  },
+  "13 forgot + reset password (event path AND fallback path)": {
+   "p": 26,
+   "f": 0
+  },
+  "14 reset link opened in a different browser": {
+   "p": 1,
+   "f": 0
+  },
+  "15 route protection (signed out)": {
+   "p": 7,
+   "f": 0
+  },
+  "16 signed-in users bounce off auth pages": {
+   "p": 4,
+   "f": 0
+  },
+  "17 profile page + server rules": {
+   "p": 5,
+   "f": 0
+  },
+  "18 change password + delete account": {
+   "p": 7,
+   "f": 0
+  },
+  "19 Google user: no password UI, delete by typing DELETE": {
+   "p": 4,
+   "f": 0
+  },
+  "20 legacy demo data is neutralised": {
+   "p": 4,
+   "f": 0
+  },
+  "21 paid access cannot be set from the browser": {
+   "p": 1,
+   "f": 0
+  },
+  "22 static checks": {
+   "p": 5,
+   "f": 0
+  }
+ },
+ "failures": []
+}

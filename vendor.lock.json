@@ -1,0 +1,10 @@
+{
+  "package": "@supabase/supabase-js",
+  "version": "2.45.4",
+  "file": "vendor/supabase.js",
+  "sourceInTarball": "package/dist/umd/supabase.js",
+  "tarballIntegrity": null,
+  "fileIntegrity": null,
+  "bytes": null,
+  "note": "NOT YET POPULATED. Run `node scripts/vendor-deps.js --update` on a machine with internet, then commit vendor/ and this file. Builds on Vercel fail until then."
+}
