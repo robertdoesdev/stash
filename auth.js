@@ -197,6 +197,8 @@
   const StashAuth = {
     state,
     LEVELS,
+    /** Phase 3: the already-configured Supabase client (same session), for storage/database calls. */
+    getClient() { return client; },
     onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },
 
     async init() {

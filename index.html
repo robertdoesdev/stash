@@ -655,7 +655,7 @@
     </nav>
     <div class="storage-mini">
       <div class="storage-bar"><div class="storage-bar-fill" id="sidebarStorageFill"></div></div>
-      <span id="sidebarStorageText">0% of 2GB used</span>
+      <span id="sidebarStorageText">0% of 1GB used</span>
     </div>
     <button class="btn btn-ghost btn-block" id="logoutBtn">Log out</button>
   </aside>
@@ -688,7 +688,7 @@
             <circle cx="60" cy="60" r="50" class="ring-track"/>
             <circle cx="60" cy="60" r="50" class="ring-fill" id="storageRing"/>
           </svg>
-          <div class="ring-center"><strong id="ringPct">0%</strong><span id="ringSubLabel">of 2 GB</span></div>
+          <div class="ring-center"><strong id="ringPct">0%</strong><span id="ringSubLabel">of 1 GB</span></div>
           <div class="ring-legend" id="ringLegend"></div>
         </div>
 
@@ -913,6 +913,16 @@
         <label class="switch"><input type="checkbox" id="ocrToggle"><span class="slider"></span></label>
       </div>
 
+      <div class="panel settings-row" id="cloudPanel">
+        <div>
+          <h3>Cloud storage</h3>
+          <p class="muted" id="cloudStatusText">Back up your documents to private storage tied to your account. A copy always stays on this device.</p>
+          <p class="muted" id="cloudUsageText"></p>
+          <button class="btn btn-secondary btn-sm hidden" type="button" id="cloudSyncBtn">Sync now</button>
+        </div>
+        <label class="switch"><input type="checkbox" id="cloudToggle"><span class="slider"></span></label>
+      </div>
+
       <div class="section-divider"></div>
 
       <div class="panel" style="margin-bottom:14px;">
@@ -1010,6 +1020,7 @@
 <script src="env-config.js"></script>
 <script src="vendor/supabase.js"></script>
 <script src="auth.js"></script>
+<script src="cloud.js"></script>
 <script src="script.js"></script>
 </body>
 </html>

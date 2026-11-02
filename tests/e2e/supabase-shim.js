@@ -68,7 +68,22 @@
         return { error: null };
       }
     };
+    const b64 = async blob => { const u8 = new Uint8Array(await blob.arrayBuffer()); let s = ''; for (let i = 0; i < u8.length; i += 8192) s += String.fromCharCode.apply(null, u8.subarray(i, i + 8192)); return btoa(s); };
+    const unb64 = (s, type) => { const bin = atob(s), u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); return new Blob([u8], { type }); };
+    const stRes = r => (r && r.stError) ? { data: null, error: Object.assign(new Error(r.stError.message), r.stError) } : null;
+    const cloudStorage = { from: bucket => ({
+      upload: (path, blob, o) => wrap(async () => { const s = read(); const r = await srv('stUpload', { token: s && s.access_token, path, b64: await b64(blob), mimetype: (o && o.contentType) || blob.type });
+        return stRes(r) || { data: { path }, error: null }; }),
+      download: path => wrap(async () => { const s = read(); const r = await srv('stDownload', { token: s && s.access_token, path }); return stRes(r) || { data: unb64(r.b64, r.mimetype), error: null }; }),
+      remove: paths => wrap(async () => { const s = read(); const r = await srv('stRemove', { token: s && s.access_token, paths }); return stRes(r) || { data: r.removed.map(name => ({ name })), error: null }; })
+    }) };
     const from = table => {
+      if (table === 'documents') {
+        const q = { status: null }; const b = { select() { return b; }, eq(c, v) { q[c] = v; return b; }, order() { return b; }, range(a, z) { q.from = a; q.to = z; return b; },
+          then(res, rej) { return wrap(async () => { const s = read(); const r = await srv('docsList', { token: s && s.access_token, status: q.status }); const e = err(r);
+            return e ? { data: null, error: e } : { data: r.rows.slice(q.from || 0, (q.to == null ? r.rows.length : q.to + 1)), error: null }; }).then(res, rej); } };
+        return b;
+      }
       const q = { id: null };
       const b = { select() { return b; }, eq(col, v) { q[col] = v; return b; },
         async maybeSingle() { return wrap(async () => { const s = read(); const r = await srv('profileGet', { token: s && s.access_token, id: q.id }); const e = err(r); return e ? { data: null, error: e } : { data: r.row, error: null }; }); } };
@@ -76,7 +91,7 @@
     };
     const rpc = async (name, args) => wrap(async () => { const s = read(); const r = await srv('rpc', { token: s && s.access_token, name, args });
       const e = err(r); return e ? { data: null, error: e } : { data: r.data, error: null }; });
-    return { auth, from, rpc };
+    return { auth, from, rpc, storage: cloudStorage };
   }
   window.supabase = { createClient };
 })();

@@ -19,7 +19,7 @@ const { scanDirs } = require('./check-secrets');
 
 const ROOT = path.resolve(__dirname, '..');
 const DIST = path.join(ROOT, 'dist');
-const SITE_FILES = ['index.html', 'styles.css', 'landing.css', 'script.js', 'auth.js', 'data.json', 'manifest.json'];
+const SITE_FILES = ['index.html', 'styles.css', 'landing.css', 'script.js', 'auth.js', 'cloud.js', 'data.json', 'manifest.json'];
 const SITE_DIRS = ['assets', 'vendor', 'fonts']; // optional; copied if present
 
 function fail(msg) { console.error('\nBUILD ERROR: ' + msg + '\n'); process.exit(1); }

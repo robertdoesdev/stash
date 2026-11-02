@@ -30,7 +30,7 @@ function registry(opts = {}) {
 }
 function sandbox() {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'stashbuild-'));
-  for (const f of ['index.html', 'styles.css', 'landing.css', 'script.js', 'auth.js', 'data.json', 'manifest.json', 'vendor.lock.json']) fs.copyFileSync(path.join(REPO, f), path.join(d, f));
+  for (const f of ['index.html', 'styles.css', 'landing.css', 'script.js', 'auth.js', 'cloud.js', 'data.json', 'manifest.json', 'vendor.lock.json']) fs.copyFileSync(path.join(REPO, f), path.join(d, f));
   fs.mkdirSync(path.join(d, 'scripts')); for (const f of ['build.js', 'vendor-deps.js', 'check-secrets.js']) fs.copyFileSync(path.join(REPO, 'scripts', f), path.join(d, 'scripts', f));
   return d;
 }

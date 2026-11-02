@@ -77,3 +77,17 @@ Phase 2, payment processing, auth backend, redesign of approved pages or app scr
 **P2-14. No paid access.** Nothing in this phase grants or checks entitlements; `plan` is forced to `free`. Payments, entitlements and cloud storage are not started.
 
 (Phase 1 items D1 to D4 remain open and still block payments.)
+
+
+---
+
+# Phase 3 decisions (cloud storage)
+
+**P3-1. Server enforces the quota** (1 GiB free / 5 GiB paid, `storage_limit_bytes`), counting real object bytes, including pending, failed and deleting rows until the object is verified gone. The browser's own limit check is advisory.
+**P3-2. Cloud backup is opt-in per account;** local copies are never deleted by sync; verification = downloaded back and size + SHA-256 matched.
+**P3-3. Paid tier is administrator-set only** (`user_entitlements`, no app-role grants). No payment code. Storage size is the first decided entitlement; the other plan entitlements remain undecided.
+**P3-4. Two-phase upload and delete** so that crashes leave resumable states, never silent orphans or free quota.
+**P3-5. Account deletion** queues Storage paths (`storage_deletion_queue`); an operator runs `scripts/cleanup-orphans.js` (service-role key stays off the website).
+**P3-6. Document-count limit (50 on Free) is still browser-only;** the server enforces bytes. Decide if it should be server-enforced.
+**P3-7. Documents search box stays local-over-synced-metadata;** server search exists but is not wired to the UI. Decide if you want it switched.
+**P3-8. A document deleted on another device is flagged, not removed here,** to honour "never delete local copies automatically".

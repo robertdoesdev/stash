@@ -5,8 +5,8 @@
     "cafePinExpiryMinutes": 10
   },
   "plans": {
-    "free": { "label": "Free", "maxDocuments": 50, "maxStorageMB": 2048, "ocrPerDay": 5 },
-    "pro": { "label": "Pro", "maxDocuments": null, "maxStorageMB": 20480, "ocrPerDay": null }
+    "free": { "label": "Free", "maxDocuments": 50, "maxStorageMB": 1024, "ocrPerDay": 5 },
+    "pro": { "label": "Pro", "maxDocuments": null, "maxStorageMB": 5120, "ocrPerDay": null }
   },
   "upload": {
     "maxFileSizeMB": 10,

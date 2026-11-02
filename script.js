@@ -41,8 +41,8 @@ async function loadConfig() {
     CONFIG = {
       app: { name: 'Stash', tagline: 'Your school papers, sorted', cafePinExpiryMinutes: 10 },
       plans: {
-        free: { label: 'Free', maxDocuments: 50, maxStorageMB: 2048, ocrPerDay: 5 },
-        pro: { label: 'Pro', maxDocuments: null, maxStorageMB: 20480, ocrPerDay: null }
+        free: { label: 'Free', maxDocuments: 50, maxStorageMB: 1024, ocrPerDay: 5 },
+        pro: { label: 'Pro', maxDocuments: null, maxStorageMB: 5120, ocrPerDay: null }
       },
       upload: {
         maxFileSizeMB: 10,
@@ -1441,6 +1441,7 @@ const Views = {
     const settings = await DB.getSettings(user.id);
     document.getElementById('offlineToggle').checked = !!settings.offlineAccess;
     document.getElementById('ocrToggle').checked = !!settings.ocrAutofill;
+    StashCloud.refreshUI(user.id);
     const theme = localStorage.getItem('stash_theme') || 'dark';
     document.querySelectorAll('.seg-btn').forEach(b => b.classList.toggle('active', b.dataset.theme === theme));
   },
@@ -2763,7 +2764,7 @@ function initAppShellChrome() {
     if (!confirm('Remove all documents stored in this session? This cannot be undone.')) return;
     const user = await Auth.currentUser();
     if (!user) return;
-    await DB.saveDocuments(user.id, []);
+    await StashCloud.localOnly(() => DB.saveDocuments(user.id, []));   // clears this device only; cloud copies stay
     UI.toast('Local vault cleared');
     await Views.renderDashboard();
   });
@@ -2812,7 +2813,7 @@ function initAccountSecurity() {
     input.type = usesPassword ? 'password' : 'text';
     input.placeholder = usesPassword ? '••••••••' : 'DELETE';
     document.getElementById('deleteAccountLabel').textContent = usesPassword ? 'Password' : 'Type DELETE to confirm';
-    document.getElementById('deleteAccountText').textContent = 'This permanently removes your account, your profile and every document stored on this device. This cannot be undone. ' +
+    document.getElementById('deleteAccountText').textContent = 'This permanently removes your account, your profile and every document stored on this device and in your cloud storage. This cannot be undone. ' +
       (usesPassword ? 'Enter your password to confirm.' : 'Type DELETE to confirm.');
     document.querySelector('#deleteAccountForm .pw-toggle').classList.toggle('hidden', !usesPassword);
     UI.openModal('deleteAccountModal');
@@ -2835,9 +2836,11 @@ function initAccountSecurity() {
         UI.showFieldError('deleteAccountError', 'Type DELETE exactly to confirm.');
         return;
       }
+      await StashCloud.purgeAllForAccountDeletion(user.id);   // best effort; the server also queues leftovers
       const r = await StashAuth.deleteAccount();   // server removes the account and profile
       if (!r.ok) { UI.showFieldError('deleteAccountError', r.message); return; }
       await DB.deleteUser(user.id);                 // then this device's documents and PINs
+      StashCloud.forget(user.id);
       UI.closeModal('deleteAccountModal');
       UI.toast('Account deleted');
       window.location.hash = '#landing';
@@ -2869,7 +2872,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Restore the session (this also completes the Google / email-link callback), THEN route.
   await StashAuth.init();
-  StashAuth.onChange(() => { router().catch(() => {}); });
+  StashCloud.attach({ DB, FileStore, toast: m => UI.toast(m) });
+  StashCloud.bindUI(() => (StashAuth.state.user ? StashAuth.state.user.id : null));
+  const startCloud = () => { const u = StashAuth.state.user; if (u) StashCloud.start(u.id); };
+  startCloud();
+  StashAuth.onChange(() => { startCloud(); router().catch(() => {}); });
   // A link that could not be completed (expired, already used, wrong browser, Google cancelled):
   // show the explanation on the login screen.
   if (StashAuth.state.notice && !StashAuth.state.user) history.replaceState(null, '', '#login');

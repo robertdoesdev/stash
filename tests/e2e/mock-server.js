@@ -170,4 +170,5 @@ class MockServer {
     return { data: { status: 'ok', profile: this.view(row) } };
   }
 }
+require('./mock-cloud')(MockServer);
 module.exports = { MockServer };

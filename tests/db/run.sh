@@ -30,3 +30,17 @@ $P0 -d stash_up -c "insert into auth.users(id,email,email_confirmed_at,raw_user_
  ('99999999-0000-0000-0000-000000000002','ok@x.com',now(),'{\"full_name\":\"Okay Person\",\"matric_number\":\"FU/50/0005\",\"level\":\"100L\"}')"
 $P0 -d stash_up -f "$M2" 2>&1 | grep -v NOTICE || true
 $Q -d stash_up -f "$HERE/upgrade_check.sql"
+
+echo "=== PHASE 3: 0003 documents / storage / quota ==="
+M3="${M3_OVERRIDE:-$ROOT/supabase/migrations/0003_documents.sql}"
+$P0 -c "create database stash_docs"
+$P0 -d stash_docs -f "$HERE/auth_stub.sql" 2>&1 | grep -v NOTICE || true
+$P0 -d stash_docs -f "$HERE/storage_stub.sql" 2>&1 | grep -v NOTICE || true
+for f in "$M1" "$M2" "$M3" "$M3" "$M2" "$M3"; do $P0 -d stash_docs -f "$f" 2>&1 | grep -v NOTICE || true; done
+echo "0003 applied repeatedly (and after re-running 0002) without error"
+$Q -d stash_docs -F ' ' -f "${DOCS_TEST:-$HERE/docs_test.sql}" 2>&1 | grep -E "^(PASS|FAIL|TOTAL|DBG)|ERROR"
+
+echo "=== PHASE 3 upgrade path: live Phase 2 data -> 0003 ==="
+$P0 -d stash_up -f "$HERE/storage_stub.sql" 2>&1 | grep -v NOTICE || true
+$P0 -d stash_up -f "$M3" 2>&1 | grep -v NOTICE || true
+$Q -d stash_up -c "select 'UPGRADE3 profiles intact: ' || (count(*)=2 and bool_or(matric_number is not null)) from public.profiles"

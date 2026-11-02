@@ -7,7 +7,7 @@ Dashboard menu names change between Supabase versions. Where a label below might
 ## 0. Prerequisites
 - Two Supabase projects: **dev** and **prod** (never share keys or users between them).
 - A Google Cloud project, a Vercel project connected to this repository, a machine with Node 18+ and internet.
-- Run once, on that machine, before the first deploy: `node scripts/vendor-deps.js --update` then **commit** `vendor/supabase.js` and the updated `vendor.lock.json`. Compare the printed tarball hash with `npm view @supabase/supabase-js@2.45.4 dist.integrity`. Until this is done, Vercel builds **fail on purpose** (the page loads `vendor/supabase.js`). If the UMD file is not at `dist/umd/supabase.js` in that package version, the script stops with a clear error; do not work around it silently.
+- Run once, on that machine, before the first deploy: `node scripts/vendor-deps.js --update` then **commit** `vendor/supabase.js` and the updated `vendor.lock.json`. Compare the printed tarball hash with `npm view @supabase/supabase-js@2.45.4 dist.integrity`. **Status (checked again for Phase 3): still NOT done.** The sandbox could not reach the npm registry (DNS failure) and its proxy returns 403 for jsDelivr, so the real file could not be downloaded or hashed. Until it is done, Vercel builds **fail on purpose** (the page loads `vendor/supabase.js`). If the UMD file is not at `dist/umd/supabase.js` in that package version, the script stops with a clear error; do not work around it silently.
 
 ## 1. Supabase
 
