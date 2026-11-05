@@ -133,7 +133,7 @@
 
   /* ---------- callback parsing (runs BEFORE the supabase client strips the URL) ---------- */
   function readCallback() {
-    const out = { hadCode: false, noticeKind: null };
+    const out = { hadCode: false, noticeKind: null, detail: null };
     const search = new URLSearchParams(window.location.search);
     const hash = (window.location.hash || '').replace(/^#/, '');
     const hashParams = hash.indexOf('=') !== -1 ? new URLSearchParams(hash) : null;
@@ -144,9 +144,25 @@
     if (err || errCode) {
       out.noticeKind = /expired|otp/i.test(errCode + ' ' + (search.get('error_description') || (hashParams && hashParams.get('error_description')) || ''))
         ? 'link_expired' : (sessionStorage.getItem(OAUTH_MARK) ? 'oauth_failed' : 'link_invalid');
+      // error_code / error_description are server messages (never tokens): safe to show and log.
+      const desc = search.get('error_description') || (hashParams && hashParams.get('error_description')) || '';
+      out.detail = [errCode, String(desc).slice(0, 160)].filter(Boolean).join(' · ') || null;
+      console.warn('[stash-auth] callback returned an error:', out.detail || err);
     }
     return out;
   }
+  /* A safe, token-free summary of an auth failure for the login notice and the console. */
+  function describeFault(stage, e) {
+    const f = { stage, status: (e && e.status) || null, code: (e && (e.code || e.name)) || null, message: String((e && e.message) || '').slice(0, 160) };
+    console.warn('[stash-auth] ' + stage + ' failed:', { status: f.status, code: f.code, message: f.message });
+    return f;
+  }
+  let lifetime = null;
+  const faultText = f => {
+    if (!f) return null;
+    const base = [f.status, f.code, f.message].filter(Boolean).join(' · ');
+    return lifetime ? base + ' · token lifetime ' + lifetime.expiresIn + 's, remaining on this device ' + lifetime.remaining + 's' : base;
+  };
   function scrubUrl() {
     const s = new URLSearchParams(window.location.search);
     ['code', 'error', 'error_code', 'error_description'].forEach(k => s.delete(k));
@@ -168,19 +184,36 @@
     if (!state.user) state.profile = null;
   }
 
+  /* One fetch per user at a time (events and init used to fire 4+ identical requests), and the
+     result is remembered so a failed fetch (e.g. 401/429) is never retried by the event handler. */
+  let profileInflight = null, profileInflightFor = null, profileTriedFor = null;
   async function loadProfile() {
     if (!client || !state.user) { state.profile = null; return null; }
-    const { data, error } = await client.from('profiles').select('*').eq('id', state.user.id).maybeSingle();
-    if (error) { state.profileError = mapProfileError(error); return null; }
-    state.profileError = null;
-    state.profile = data || null; // null => no row yet => onboarding
-    return state.profile;
+    const uid = state.user.id;
+    if (profileInflight && profileInflightFor === uid) return profileInflight;
+    profileInflightFor = uid;
+    profileInflight = (async () => {
+      try {
+        const { data, error } = await client.from('profiles').select('*').eq('id', uid).maybeSingle();
+        if (!state.user || state.user.id !== uid) return null;     // the user changed while we waited
+        profileTriedFor = uid;
+        if (error) {
+          state.profileError = mapProfileError(error);
+          console.warn('[stash-auth] profile load failed:', { status: error.status || null, code: error.code || null });
+          return null;
+        }
+        state.profileError = null;
+        state.profile = data || null; // null => no row yet => onboarding
+        return state.profile;
+      } finally { profileInflight = null; profileInflightFor = null; }
+    })();
+    return profileInflight;
   }
 
   async function handleEvent(event, session) {
     const before = key();
     if (event === 'SIGNED_OUT') {
-      state.user = null; state.profile = null; state.recovery = false;
+      state.user = null; state.profile = null; state.recovery = false; profileTriedFor = null;
     } else if (event === 'PASSWORD_RECOVERY') {
       state.recovery = true;
       state.arrivedVia = 'recovery';
@@ -188,7 +221,7 @@
       await loadProfile();
     } else if (session) {
       await applySession(session);
-      if (state.user && (!state.profile || state.profile.id !== state.user.id)) await loadProfile();
+      if (state.user && profileTriedFor !== state.user.id) await loadProfile();
     }
     if (key() !== before) emit(event);
   }
@@ -204,7 +237,10 @@
     async init() {
       const cb = readCallback();
       const oauthPending = !!sessionStorage.getItem(OAUTH_MARK);
-      if (cb.noticeKind) state.notice = { kind: cb.noticeKind };
+      if (cb.noticeKind) state.notice = { kind: cb.noticeKind, detail: cb.detail };
+      // PKCE needs the verifier saved by the page that STARTED the sign-in (same browser AND same
+      // origin: localhost and 127.0.0.1 are different origins). Check before the library consumes it.
+      const verifierMissing = cb.hadCode && !storage.getItem('stash-auth-code-verifier');
 
       if (!ENV.SUPABASE_URL || !ENV.SUPABASE_ANON_KEY || !(window.supabase && window.supabase.createClient)) {
         state.configured = false; state.ready = true;
@@ -217,10 +253,29 @@
       state.configured = true;
       // Subscribe BEFORE awaiting so a recovery event during initialization is not missed.
       // (Never call auth methods synchronously inside this callback; defer.)
-      client.auth.onAuthStateChange((event, session) => { setTimeout(() => { handleEvent(event, session); }, 0); });
+      client.auth.onAuthStateChange((event, session) => {
+        if (session && session.expires_at && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) {
+          // expires_in = lifetime the server granted; remaining = what THIS browser's clock thinks is left.
+          // remaining far below expires_in (or negative) means a wrong device clock; a tiny expires_in
+          // means the project's JWT expiry is set too low. Either makes every call try to refresh.
+          lifetime = { expiresIn: session.expires_in || null, remaining: session.expires_at - Math.floor(Date.now() / 1000) };
+          console.warn('[stash-auth] ' + event + ': token lifetime granted=' + lifetime.expiresIn + 's, remaining on this device=' + lifetime.remaining + 's');
+        }
+        setTimeout(() => { handleEvent(event, session); }, 0);
+      });
 
-      let session = null;
-      try { const r = await client.auth.getSession(); session = r.data && r.data.session; } catch (e) { session = null; }
+      // The code exchange happens inside the library's own initialization, and getSession() does NOT
+      // report its failure, so read the initialization result explicitly instead of swallowing it.
+      let session = null, fault = null;
+      try {
+        if (typeof client.auth.initialize === 'function') {
+          const ir = await client.auth.initialize();
+          if (ir && ir.error) fault = describeFault('code exchange', ir.error);
+        }
+        const r = await client.auth.getSession();
+        if (r && r.error && !fault) fault = describeFault('session restore', r.error);
+        session = r && r.data && r.data.session;
+      } catch (e) { fault = describeFault('session restore', e); session = null; }
       await applySession(session);
 
       // Confirm the session with the Supabase server (not just the cached token).
@@ -247,7 +302,11 @@
           else state.arrivedVia = oauthPending ? 'oauth' : 'email-link';
         } else if (!state.notice) {
           // code could not be exchanged (e.g. opened in a different browser than the one that asked for it)
-          state.notice = { kind: oauthPending ? 'oauth_failed' : 'link_unusable' };
+          state.notice = {
+            kind: verifierMissing ? 'verifier_missing' : (oauthPending ? 'oauth_failed' : 'link_unusable'),
+            detail: faultText(fault)
+          };
+          if (verifierMissing) console.warn('[stash-auth] callback code present but no PKCE verifier in this browser/origin (' + window.location.origin + ')');
         }
       }
       try { sessionStorage.removeItem(OAUTH_MARK); } catch (e) { /* ignore */ }

@@ -816,13 +816,52 @@ const UI = {
     document.getElementById('sidebar').classList.remove('open');
     document.getElementById('scrim').classList.remove('show');
   },
-  setTheme(mode) {
-    document.body.classList.toggle('light-mode', mode === 'light');
-    localStorage.setItem('stash_theme', mode);
+  /* ---- Theme (presentation only) ----
+     'light' and 'dark' are remembered in localStorage ('stash_theme'); 'system' means nothing is saved
+     and the device's preference decides. The CSS reads <html data-theme>, which a tiny inline script in
+     <head> also sets before first paint so the wrong theme never flashes. body.light-mode is kept in
+     step for any older selectors. */
+  savedTheme() { try { const v = localStorage.getItem('stash_theme'); return v === 'light' || v === 'dark' ? v : null; } catch (e) { return null; } },
+  systemTheme() { return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; },
+  applyTheme(resolved, animate) {
+    const root = document.documentElement;
+    if (animate && !(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)) {
+      root.classList.add('theme-anim');
+      clearTimeout(this._themeAnim);
+      this._themeAnim = setTimeout(() => root.classList.remove('theme-anim'), 350);
+    }
+    root.setAttribute('data-theme', resolved);
+    document.body.classList.toggle('light-mode', resolved === 'light');
+    document.querySelectorAll('meta[name="theme-color"]').forEach(m => m.setAttribute('content', resolved === 'dark' ? '#0B0D2E' : '#F3F5FF'));
+    const next = resolved === 'dark' ? 'light' : 'dark';
+    document.querySelectorAll('.theme-toggle').forEach(b => b.setAttribute('aria-label', 'Switch to ' + next + ' theme'));
+  },
+  markThemeChoice(mode) {
     document.querySelectorAll('.seg-btn').forEach(b => b.classList.toggle('active', b.dataset.theme === mode));
   },
-  initTheme() { this.setTheme(localStorage.getItem('stash_theme') || 'dark'); },
-  toggleTheme() { this.setTheme(document.body.classList.contains('light-mode') ? 'dark' : 'light'); },
+  setTheme(mode) {   // 'light' | 'dark' | 'system'
+    try { if (mode === 'system') localStorage.removeItem('stash_theme'); else localStorage.setItem('stash_theme', mode); } catch (e) { /* private mode: still applies for this visit */ }
+    this.applyTheme(mode === 'system' ? this.systemTheme() : mode, true);
+    this.markThemeChoice(mode);
+  },
+  initTheme() {
+    const saved = this.savedTheme();
+    this.applyTheme(saved || this.systemTheme(), false);
+    this.markThemeChoice(saved || 'system');
+    // Follow the device live while no choice is saved, and follow a change made in another tab.
+    if (window.matchMedia) {
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      const onSystem = () => { if (!this.savedTheme()) this.applyTheme(this.systemTheme(), true); };
+      if (mq.addEventListener) mq.addEventListener('change', onSystem); else if (mq.addListener) mq.addListener(onSystem);
+    }
+    window.addEventListener('storage', e => {
+      if (e.key !== 'stash_theme') return;
+      const v = this.savedTheme();
+      this.applyTheme(v || this.systemTheme(), true);
+      this.markThemeChoice(v || 'system');
+    });
+  },
+  toggleTheme() { this.setTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'); },
   openModal(id) { document.getElementById(id).classList.remove('hidden'); },
   closeModal(id) { document.getElementById(id).classList.add('hidden'); },
   showFieldError(id, message) {
@@ -1072,6 +1111,7 @@ const Views = {
       link_invalid: ['That link is invalid or has already been used. Log in below, or request a new link.', 'is-error'],
       link_unusable: ['We couldn\u2019t finish that link in this browser. If you just confirmed your email, you can log in now. If you were resetting your password, request a new link.', 'is-error'],
       oauth_failed: ['Google sign-in didn\u2019t complete. Please try again.', 'is-error'],
+      verifier_missing: ['We couldn\u2019t finish that link here: it was opened in a different browser or web address from the one you started in (for example 127.0.0.1 instead of localhost). If you just confirmed your email, you can log in now. For Google, start again from this same address. If you were resetting your password, request a new link.', 'is-error'],
       signed_out_elsewhere: ['You were signed out. Log in again to continue.', '']
     };
     let msg = '', cls = '';
@@ -1079,6 +1119,11 @@ const Views = {
     else if (st.notice && N[st.notice.kind]) { [msg, cls] = N[st.notice.kind]; }
     el.className = 'auth-notice' + (msg ? ' ' + cls : ' hidden');
     el.textContent = msg;
+    if (msg && st.notice && st.notice.detail) {   // the real reason, so failures are not a mystery
+      const d = document.createElement('div'); d.className = 'notice-detail'; d.textContent = 'Reason: ' + st.notice.detail;
+      d.style.cssText = 'margin-top:6px;font-size:.85em;opacity:.8;word-break:break-word';
+      el.appendChild(d);
+    }
     if (msg && st.notice && /link_/.test(st.notice.kind)) {
       const wrap = document.createElement('div'); wrap.className = 'notice-actions';
       const b = document.createElement('button'); b.type = 'button'; b.className = 'forgot-link'; b.textContent = 'Reset my password';
@@ -1442,8 +1487,7 @@ const Views = {
     document.getElementById('offlineToggle').checked = !!settings.offlineAccess;
     document.getElementById('ocrToggle').checked = !!settings.ocrAutofill;
     StashCloud.refreshUI(user.id);
-    const theme = localStorage.getItem('stash_theme') || 'dark';
-    document.querySelectorAll('.seg-btn').forEach(b => b.classList.toggle('active', b.dataset.theme === theme));
+    UI.markThemeChoice(UI.savedTheme() || 'system');
   },
 
   renderHelp() {
@@ -2694,7 +2738,7 @@ function initAppShellChrome() {
   document.getElementById('logoutBtn').addEventListener('click', () => Auth.logout());
   document.getElementById('openSidebarBtn').addEventListener('click', () => UI.openSidebar());
   document.getElementById('scrim').addEventListener('click', () => UI.closeSidebar());
-  document.getElementById('themeToggleBtn').addEventListener('click', () => UI.toggleTheme());
+  document.querySelectorAll('.theme-toggle').forEach(b => b.addEventListener('click', () => UI.toggleTheme()));   // app top bar + landing + login/signup
 
   // Fix: clicking the top avatar goes to Profile.
   document.getElementById('topAvatar').addEventListener('click', () => { window.location.hash = '#profile'; });
@@ -2743,6 +2787,7 @@ function initAppShellChrome() {
     UI.toast('Photo updated');
   });
 
+  document.getElementById('segSystem').addEventListener('click', () => UI.setTheme('system'));
   document.getElementById('segDark').addEventListener('click', () => UI.setTheme('dark'));
   document.getElementById('segLight').addEventListener('click', () => UI.setTheme('light'));
 

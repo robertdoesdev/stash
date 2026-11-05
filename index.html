@@ -5,7 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Stash — Your school papers, sorted</title>
 <meta name="description" content="Stash keeps your receipts, forms and clearance papers in one place, so you can find what you need when you need it.">
-<meta name="theme-color" content="#0A0F1E">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#F3F5FF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0B0D2E" media="(prefers-color-scheme: dark)">
+<!-- Theme before first paint: saved choice, else the device preference. (script.js re-applies it and keeps it in sync.) -->
+<script>(function(){try{var t=localStorage.getItem('stash_theme');if(t!=='light'&&t!=='dark'){t=window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}document.documentElement.setAttribute('data-theme',t)}catch(e){}})();</script>
 <link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -35,6 +39,8 @@
     <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
     <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
     <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"/></symbol>
     <symbol id="i-print" viewBox="0 0 24 24"><path d="M7 9V4h10v5M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2"/><rect x="7" y="14" width="10" height="6" rx="1"/></symbol>
   </defs>
 </svg>
@@ -55,6 +61,9 @@
       <a class="menu-login" href="#login">Log in</a>
     </nav>
     <div class="marketing-actions">
+      <button type="button" class="icon-btn theme-toggle theme-toggle-public" aria-label="Switch to dark theme" title="Switch theme">
+        <svg class="ic icon-sun" width="20" height="20" aria-hidden="true"><use href="#i-sun"/></svg><svg class="ic icon-moon" width="20" height="20" aria-hidden="true"><use href="#i-moon"/></svg>
+      </button>
       <a class="btn btn-ghost btn-sm nav-login" href="#login">Log in</a>
       <a class="btn btn-primary btn-sm" href="#signup">Get started</a>
     </div>
@@ -357,6 +366,9 @@
 <!-- ============ AUTH SHELL (#login, #signup) — split layout ============ -->
 <div id="authShell" class="auth-shell hidden">
   <section class="auth-panel">
+    <button type="button" class="icon-btn theme-toggle theme-toggle-public theme-toggle-auth" aria-label="Switch to dark theme" title="Switch theme">
+      <svg class="ic icon-sun" width="20" height="20" aria-hidden="true"><use href="#i-sun"/></svg><svg class="ic icon-moon" width="20" height="20" aria-hidden="true"><use href="#i-moon"/></svg>
+    </button>
     <div class="auth-panel-inner">
       <a class="brand" href="#landing" aria-label="Stash home">
         <svg class="brand-mark" width="40" height="40" aria-hidden="true"><use href="#stash-mark"/></svg>
@@ -598,10 +610,10 @@
         <p class="doc-detected-info hidden" id="docDetectedInfo"></p>
         <div class="field-row">
           <label class="field"><span>Reference type</span><select id="editReferenceType"></select></label>
-          <label class="field"><span>Reference number <em class="detected-tag hidden" data-tag="referenceNumber">detected</em></span><input type="text" id="editReferenceNumber" placeholder="\u2014"></label>
+          <label class="field"><span>Reference number <em class="detected-tag hidden" data-tag="referenceNumber">detected</em></span><input type="text" id="editReferenceNumber" placeholder="—"></label>
         </div>
         <div class="field-row">
-          <label class="field"><span>Amount (₦) <em class="detected-tag hidden" data-tag="amount">detected</em></span><input type="text" id="editAmount" placeholder="\u2014"></label>
+          <label class="field"><span>Amount (₦) <em class="detected-tag hidden" data-tag="amount">detected</em></span><input type="text" id="editAmount" placeholder="—"></label>
           <label class="field"><span>Date <em class="detected-tag hidden" data-tag="date">detected</em></span><input type="date" id="editDate"></label>
         </div>
         <div class="field-row">
@@ -640,7 +652,7 @@
 
   <aside class="sidebar" id="sidebar">
     <div class="brand">
-      <svg width="28" height="28" viewBox="0 0 34 34" fill="none"><rect width="34" height="34" rx="9" fill="var(--accent)"/><path d="M9 11h16M9 17h16M9 23h10" stroke="var(--bg)" stroke-width="2.4" stroke-linecap="round"/></svg>
+      <svg class="brand-mark" width="34" height="34" aria-hidden="true"><use href="#stash-mark"/></svg>
       <span>Stash</span>
     </div>
     <nav class="nav">
@@ -669,7 +681,7 @@
         <i data-ic="search"></i>
         <input type="text" id="globalSearch" placeholder="Search receipts, dockets, courses…">
       </div>
-      <button class="icon-btn theme-toggle" id="themeToggleBtn" title="Toggle day/night">
+      <button class="icon-btn theme-toggle" id="themeToggleBtn" title="Switch theme" aria-label="Switch to dark theme">
         <i data-ic="sun" class="icon-sun"></i><i data-ic="moon" class="icon-moon"></i>
       </button>
       <button class="avatar avatar-btn" id="topAvatar" title="Go to profile">S</button>
@@ -896,8 +908,9 @@
       </div>
 
       <div class="panel settings-row">
-        <div><h3>Appearance</h3><p class="muted">Switch between night and daylight mode.</p></div>
+        <div><h3>Appearance</h3><p class="muted">Night, daylight, or follow your device.</p></div>
         <div class="segmented">
+          <button class="seg-btn" type="button" data-theme="system" id="segSystem">System</button>
           <button class="seg-btn" type="button" data-theme="dark" id="segDark">Night</button>
           <button class="seg-btn" type="button" data-theme="light" id="segLight">Daylight</button>
         </div>
