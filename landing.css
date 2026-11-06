@@ -1361,4 +1361,5 @@ body:has(#authShell:not(.hidden)) { background: var(--st-surface); }
 .theme-toggle-public .ic { width: 20px; height: 20px; }
 .marketing-actions .theme-toggle-public { margin-right: 4px; }
 .auth-panel { position: relative; }
+
 .theme-toggle-auth { position: absolute; top: 18px; right: 18px; z-index: 2; }
