@@ -40,11 +40,8 @@ else:
   const uid = await p.evaluate(async () => (await Auth.currentUser()).id);
   ok('local record is keyed by the auth user id (UUID) and has no password', /^[0-9a-f-]{36}$/.test(uid) && !(await p.evaluate(() => localStorage.getItem('stash_users').includes('password'))));
   await p.goto(NEW + '#cafepin'); await p.waitForTimeout(500);
-  const sel = await p.locator('#cafeDocSelect, #cafeSelect, select').first().evaluate(e => e.id).catch(() => '');
-  const pinBtn = p.locator('#generatePinBtn, #cafeGenerateBtn, button:has-text("Generate")').first();
-  if (await pinBtn.count()) { await p.locator('select').first().selectOption({ index: 1 }).catch(() => {}); await pinBtn.click(); await p.waitForTimeout(500); }
-  const pins = await p.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('stash_cafe_pins') || '{}')).length);
-  ok('Cafe PIN generation still works', pins === 1, 'pins=' + pins);
+  const pinsStore = await p.evaluate(() => localStorage.getItem('stash_cafe_pins'));
+  ok('Cafe PIN screen loads and no browser-local PIN store is written (PINs are server-side now; see tests/e2e/cafe.e2e.js)', pinsStore === null && await p.locator('#generatePinBtn').count() === 1 && await p.locator('#cafeDocSelect').count() === 1);
   await p.goto(NEW + '#print-portal'); await p.waitForTimeout(300);
   ok('public Cafe Print portal reachable signed-in', (await p.evaluate(() => location.hash)) === '#print-portal');
   for (const r of ['clearance', 'settings', 'help', 'profile']) { await p.goto(NEW + '#' + r); await p.waitForTimeout(350); }

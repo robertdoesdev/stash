@@ -144,7 +144,7 @@
         <div class="tile tile-pin">
           <div class="paper">
             <div class="pin-label">Cafe PIN</div>
-            <div class="pin-digits"><span>4</span><span>8</span><span>2</span><span>7</span></div>
+            <div class="pin-digits"><span>4</span><span>8</span><span>2</span><span>7</span><span>1</span><span>9</span></div>
             <div class="pin-meta">Expires in 10:00</div>
             <div class="pin-file"><span class="pdf-badge">PDF</span> Hostel fee</div>
           </div>
@@ -281,10 +281,10 @@
     <section class="band band-ink folder" id="cafe-print" aria-labelledby="cafe-title">
       <span class="tab" aria-hidden="true">Cafe print</span>
       <div class="wrap split split-reverse">
-        <div class="cafe-visual" role="img" aria-label="A cafe PIN card showing the digits 4 8 2 7, valid for 10 minutes, for one document.">
+        <div class="cafe-visual" role="img" aria-label="A cafe PIN card showing the digits 4 8 2 7 1 9, valid for 10 minutes, for one document.">
           <div class="cafe-card-big">
             <div class="cc-label">Cafe PIN</div>
-            <div class="cc-digits"><span>4</span><span>8</span><span>2</span><span>7</span></div>
+            <div class="cc-digits"><span>4</span><span>8</span><span>2</span><span>7</span><span>1</span><span>9</span></div>
             <div class="cc-meta"><svg class="ic" width="18" height="18" aria-hidden="true"><use href="#i-clock"/></svg>Valid for 10:00</div>
             <div class="cc-file"><span class="pdf-badge">PDF</span><b>Hostel fee receipt</b></div>
           </div>
@@ -292,7 +292,7 @@
         </div>
         <div class="split-copy">
           <h2 class="band-title" id="cafe-title">Printing at a cafe? Share a PIN, not your account.</h2>
-          <p class="band-text">Pick one document and generate a 4-digit PIN. The cafe types it into Cafe Print to open that one document, no login needed. The PIN stops working after 10&nbsp;minutes.</p>
+          <p class="band-text">Pick one document and generate a 6-digit PIN. The cafe types it into Cafe Print to open that one document, no login needed. The PIN works once and stops after 10&nbsp;minutes.</p>
           <div class="hero-actions left">
             <a class="btn btn-accent btn-lg" href="#signup">Get a PIN</a>
             <a class="btn btn-outline-light btn-lg" href="#print-portal">Open Cafe Print</a>
@@ -547,7 +547,7 @@
         <div class="tile tile-pin">
           <div class="paper">
             <div class="pin-label">Cafe PIN</div>
-            <div class="pin-digits"><span>4</span><span>8</span><span>2</span><span>7</span></div>
+            <div class="pin-digits"><span>4</span><span>8</span><span>2</span><span>7</span><span>1</span><span>9</span></div>
             <div class="pin-meta">Expires in 10:00</div>
           </div>
         </div>
@@ -842,21 +842,31 @@
     <section class="view" id="view-cafepin" hidden>
       <div class="view-head">
         <h1>Cafe Quick-Print PIN</h1>
-        <p class="view-sub">Let a cyber cafe open one printable file — no login, expires fast.</p>
+        <p class="view-sub">Give a cafe a 6-digit PIN for one saved document. It works once, for 10 minutes, with no login.</p>
       </div>
 
       <div class="panel cafe-card">
-        <label class="field"><span>Choose a document</span><select id="cafeDocSelect"></select></label>
+        <p class="muted hidden" id="cafeCloudNote" role="status"></p>
+        <label class="field"><span>Choose a saved document</span><select id="cafeDocSelect"></select></label>
+        <p class="muted small hidden" id="cafeLocalOnlyNote"></p>
         <button class="btn btn-primary" type="button" id="generatePinBtn">Generate PIN</button>
+        <span class="field-error hidden" id="cafePinMsg" role="alert"></span>
 
-        <div class="pin-result hidden" id="pinResult">
-          <div class="pin-display" id="pinDisplay">— — — —</div>
-          <p class="muted">Valid for <span id="pinTimer">10:00</span> · single use</p>
+        <div class="pin-result hidden" id="pinResult" aria-live="polite">
+          <div class="pin-display" id="pinDisplay">&mdash; &mdash; &mdash; &mdash; &mdash; &mdash;</div>
+          <p class="muted"><span id="pinState">Active</span> &middot; <span id="pinTimer">10:00</span> left &middot; single use</p>
+          <p class="muted small" id="pinDocName"></p>
+          <p class="muted small hidden" id="pinHiddenNote">This PIN was shown when you made it and can&rsquo;t be shown again. If you lost it, cancel it and make a new one.</p>
           <div class="pin-link">
-            <input type="text" readonly id="pinLink">
-            <button class="btn btn-secondary" type="button" id="copyPinLinkBtn">Copy link</button>
+            <button class="btn btn-secondary" type="button" id="copyPinBtn">Copy PIN</button>
+            <button class="btn btn-danger" type="button" id="revokePinBtn">Cancel PIN</button>
           </div>
         </div>
+      </div>
+
+      <div class="panel cafe-card hidden" id="pinHistoryPanel">
+        <h2 class="panel-title">Recent PINs</h2>
+        <ul class="pin-history" id="pinHistory"></ul>
       </div>
     </section>
 
@@ -1008,17 +1018,19 @@
       <svg width="30" height="30" viewBox="0 0 34 34" fill="none"><rect width="34" height="34" rx="9" fill="var(--accent)"/><path d="M9 11h16M9 17h16M9 23h10" stroke="var(--bg)" stroke-width="2.4" stroke-linecap="round"/></svg>
       <span>Stash Cafe Print</span>
     </div>
-    <p class="auth-sub">Enter the 4-digit PIN given by the student to open their print-ready file. No login needed — the PIN expires automatically.</p>
+    <p class="auth-sub">Enter the 6-digit PIN the student gives you to print their document. No login needed. A PIN works once and expires after 10 minutes.</p>
 
     <form id="cafePinForm" novalidate>
-      <label class="field"><span>4-digit PIN</span><input type="text" id="cafePinInput" inputmode="numeric" maxlength="4" placeholder="0000" required></label>
-      <button type="submit" class="btn btn-primary btn-block">Open document</button>
+      <label class="field"><span>6-digit PIN</span><input type="text" id="cafePinInput" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="000000" required></label>
+      <button type="submit" class="btn btn-primary btn-block" id="cafeSubmitBtn">Open document</button>
     </form>
-    <span class="field-error hidden" id="cafePinError">That PIN is invalid or has expired.</span>
+    <span class="field-error hidden" id="cafePinError" role="alert">That PIN isn&rsquo;t valid. It may have expired, been cancelled or already been used.</span>
 
-    <div class="cafe-result hidden" id="cafeResult">
+    <div class="cafe-result hidden" id="cafeResult" aria-live="polite">
       <div class="cafe-doc-preview" id="cafeDocPreview"></div>
       <button class="btn btn-primary btn-block" id="cafePrintBtn" type="button">Print this document</button>
+      <button class="btn btn-secondary btn-block hidden" id="cafeRetryBtn" type="button">Try again</button>
+      <button class="btn btn-ghost btn-block" id="cafeDoneBtn" type="button">Done &ndash; clear this screen</button>
     </div>
 
     <a class="auth-switch" href="#login" style="display:block; margin-top:18px;">&larr; Back to login</a>

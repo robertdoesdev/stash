@@ -658,14 +658,6 @@ const DB = {
     delete users[id];
     await this.saveUsers(users);
     await Promise.all(docs.map(d => FileStore.delete(d.id).catch(() => {})));
-    // Revoke any cafe PINs the deleted account had issued so a stale link
-    // can't keep exposing a document after the account is gone.
-    const pins = await this.getPins();
-    let changed = false;
-    Object.keys(pins).forEach(p => {
-      if (pins[p].userId === id) { delete pins[p]; changed = true; }
-    });
-    if (changed) await this.savePins(pins);
   },
 
   async getDocuments(userId) {
@@ -775,25 +767,6 @@ const DB = {
     users[userId].usage = { ...(users[userId].usage || {}), [kind]: { date: today, count } };
     await this.saveUsers(users);
     return count;
-  },
-
-  async getPins() { return this._read('stash_cafe_pins', {}); },
-  async savePins(pins) { this._write('stash_cafe_pins', pins); return pins; },
-  async createPin(userId, doc) {
-    const pins = await this.getPins();
-    let pin;
-    do { pin = String(Math.floor(1000 + Math.random() * 9000)); } while (pins[pin]);
-    const expiresAt = Date.now() + CONFIG.app.cafePinExpiryMinutes * 60 * 1000;
-    pins[pin] = { userId, doc, expiresAt };
-    await this.savePins(pins);
-    return { pin, expiresAt };
-  },
-  async consumePin(pin) {
-    const pins = await this.getPins();
-    const entry = pins[pin];
-    if (!entry) return null;
-    if (Date.now() > entry.expiresAt) { delete pins[pin]; await this.savePins(pins); return null; }
-    return entry;
   }
 };
 
@@ -1420,14 +1393,7 @@ const Views = {
     if (el) el.textContent = `${PacketBuilder.order.length} selected`;
   },
 
-  async populateCafeSelect() {
-    const user = await Auth.currentUser();
-    const docs = await DB.getDocuments(user.id);
-    const sel = document.getElementById('cafeDocSelect');
-    sel.innerHTML = docs.length
-      ? docs.map(d => `<option value="${d.id}">${d.name}</option>`).join('')
-      : '<option value="">No documents yet</option>';
-  },
+  async populateCafeSelect() { await CafeStudent.render(); },
 
   async renderProfile() {
     const user = await Auth.currentUser();
@@ -2139,8 +2105,7 @@ const Documents = {
     const bulkClearBtn = document.getElementById('bulkClearBtn');
     if (bulkClearBtn) bulkClearBtn.addEventListener('click', () => { Vault.resetSelection(); Views.filterDocuments(); });
 
-    document.getElementById('generatePinBtn').addEventListener('click', () => this.generatePinForSelected());
-    document.getElementById('copyPinLinkBtn').addEventListener('click', () => this.copyPinLink());
+    CafeStudent.init();
   },
 
   async handleFiles(fileList) {
@@ -2350,38 +2315,6 @@ const Documents = {
       ${imgHTML}`;
   },
 
-  async generatePinForSelected() {
-    const user = await Auth.currentUser();
-    const docId = document.getElementById('cafeDocSelect').value;
-    if (!docId) { UI.toast('Choose a document first'); return; }
-    const docs = await DB.getDocuments(user.id);
-    const doc = docs.find(d => d.id === docId);
-    if (!doc) return;
-
-    const { pin } = await DB.createPin(user.id, doc);
-    document.getElementById('pinResult').classList.remove('hidden');
-    document.getElementById('pinDisplay').textContent = pin.split('').join(' ');
-    document.getElementById('pinLink').value = `stash.app/p/${pin}`;
-    UI.toast(`PIN ready for ${doc.name}`);
-
-    let seconds = CONFIG.app.cafePinExpiryMinutes * 60;
-    const timerEl = document.getElementById('pinTimer');
-    clearInterval(this._timerHandle);
-    this._timerHandle = setInterval(() => {
-      seconds--;
-      const m = String(Math.floor(seconds / 60)).padStart(2, '0');
-      const s = String(seconds % 60).padStart(2, '0');
-      timerEl.textContent = `${m}:${s}`;
-      if (seconds <= 0) { clearInterval(this._timerHandle); document.getElementById('pinResult').classList.add('hidden'); }
-    }, 1000);
-  },
-
-  copyPinLink() {
-    const input = document.getElementById('pinLink');
-    input.select();
-    navigator.clipboard?.writeText(input.value).then(() => UI.toast('Link copied')).catch(() => UI.toast('Copy manually \u2014 clipboard blocked'));
-  },
-
   async compileClearance() {
     const ids = PacketBuilder.order;
     if (!ids.length) { UI.toast('Select at least one document first'); return; }
@@ -2450,28 +2383,286 @@ const Documents = {
 };
 
 /* =========================================================
-   CAFE PRINT PORTAL (public)
+   CAFE PRINT — student side (needs a signed-in student and the Supabase cloud copy).
+   PINs are created, hashed and enforced by the database. The plaintext PIN exists only in this page's memory,
+   only right after it is made. Nothing about a PIN is written to localStorage/sessionStorage/IndexedDB.
+   ========================================================= */
+const CafeStudent = {
+  pin: null,            // { code, id }  in-memory only
+  active: null,         // server view of the live PIN
+  remaining: 0, tick: null, poll: null, busy: false,
+
+  init() {
+    try { localStorage.removeItem('stash_cafe_pins'); } catch (e) { /* legacy browser-local PINs are no longer used */ }
+    document.getElementById('generatePinBtn').addEventListener('click', () => this.generate());
+    document.getElementById('copyPinBtn').addEventListener('click', () => this.copy());
+    document.getElementById('revokePinBtn').addEventListener('click', () => this.revoke());
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && this.active) this.refresh(); });
+  },
+
+  msg(text) {
+    const el = document.getElementById('cafePinMsg');
+    el.textContent = text || ''; el.classList.toggle('hidden', !text);
+  },
+  note(text) {
+    const el = document.getElementById('cafeCloudNote');
+    el.textContent = text || ''; el.classList.toggle('hidden', !text);
+  },
+  setBusy(b) { this.busy = b; this.syncButton(); },
+  syncButton() {
+    const sel = document.getElementById('cafeDocSelect'), btn = document.getElementById('generatePinBtn');
+    btn.disabled = this.busy || !!this.active;   // an empty choice is explained by generate() instead of a faded-out button
+    btn.textContent = this.busy ? 'Working…' : 'Generate PIN';
+  },
+
+  async render() {
+    this.stopTimers(); this.msg('');
+    const user = await Auth.currentUser();
+    const sel = document.getElementById('cafeDocSelect'), localNote = document.getElementById('cafeLocalOnlyNote');
+    sel.innerHTML = ''; localNote.classList.add('hidden');
+    if (!user) return;
+    if (!(window.StashCloud && StashCloud.available(user.id))) {
+      sel.innerHTML = '<option value="">Unavailable</option>';
+      this.note('Cafe PINs need the cloud copy of your documents. Connect to the internet and make sure you are signed in.');
+      this.syncButton(); return;
+    }
+    this.note('');
+    let rows = [], hist = null;
+    try { [rows, hist] = await Promise.all([StashCloud.cafe.docs(), StashCloud.cafe.list()]); }
+    catch (e) { sel.innerHTML = '<option value="">Unavailable</option>'; this.note('Could not load your cloud documents. Try again in a moment.'); this.syncButton(); return; }
+    sel.innerHTML = rows.length
+      ? rows.map(r => `<option value="${escapeHTML(r.id)}">${escapeHTML(r.title || 'Untitled')}</option>`).join('')
+      : '<option value="">No uploaded documents yet</option>';
+    const local = await DB.getDocuments(user.id);
+    const readyRefs = new Set(rows.map(r => r.local_ref));
+    const waiting = local.filter(d => !readyRefs.has(d.id)).length;
+    if (waiting) {
+      localNote.textContent = `${waiting} document${waiting === 1 ? ' is' : 's are'} not in the cloud yet (local only, waiting or failed to upload), so ${waiting === 1 ? 'it' : 'they'} can’t get a PIN. Turn on cloud sync in Settings to upload ${waiting === 1 ? 'it' : 'them'}.`;
+      localNote.classList.remove('hidden');
+    }
+    this.applyHistory(hist);
+    this.syncButton();
+  },
+
+  applyHistory(h) {
+    const pins = (h && h.pins) || [];
+    const live = pins.find(p => p.status === 'active');
+    this.active = live || null;
+    this.drawHistory(pins);
+    this.drawResult(live, pins);
+    if (live) { this.startCountdown(live, h.server_now); this.startPolling(); } else { this.stopTimers(); }
+    this.syncButton();
+  },
+
+  drawResult(live, pins) {
+    const box = document.getElementById('pinResult');
+    const last = pins[0];
+    const show = live || (this.pin && last && last.id === this.pin.id);
+    box.classList.toggle('hidden', !show);
+    if (!show) return;
+    const shown = live || last;
+    document.getElementById('pinDocName').textContent = shown.title || '';
+    const known = !!(live && this.pin && this.pin.id === shown.id);
+    document.getElementById('pinDisplay').textContent = known ? this.pin.code.split('').join(' ') : '— — — — — —';
+    document.getElementById('pinHiddenNote').classList.toggle('hidden', known || !live);
+    document.getElementById('copyPinBtn').classList.toggle('hidden', !known);
+    document.getElementById('revokePinBtn').classList.toggle('hidden', !live);
+    document.getElementById('pinState').textContent = this.label(shown.status);
+    if (!live) document.getElementById('pinTimer').textContent = '00:00';
+  },
+
+  label(s) { return ({ active: 'Active', redeemed: 'Used at the cafe', expired: 'Expired', revoked: 'Cancelled' })[s] || s; },
+
+  drawHistory(pins) {
+    const ul = document.getElementById('pinHistory'), panel = document.getElementById('pinHistoryPanel');
+    panel.classList.toggle('hidden', !pins.length);
+    ul.innerHTML = pins.slice(0, 10).map(p => {
+      const when = new Date(p.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      return `<li class="pin-hist-row"><span class="pin-hist-doc">${escapeHTML(p.title || 'Document')}</span><span class="pin-hist-when">${escapeHTML(when)}</span><span class="badge badge-muted pin-st pin-st-${escapeHTML(p.status)}">${escapeHTML(this.label(p.status))}</span></li>`;
+    }).join('');
+  },
+
+  startCountdown(live, serverNow) {
+    // Only DIFFERENCES of server timestamps are used, so a wrong device clock cannot extend a PIN.
+    this.remaining = Math.max(0, Math.floor((new Date(live.expires_at) - new Date(serverNow)) / 1000));
+    const base = performance.now(), start = this.remaining, el = document.getElementById('pinTimer');
+    clearInterval(this.tick);
+    const paint = () => {
+      this.remaining = Math.max(0, start - Math.floor((performance.now() - base) / 1000));
+      el.textContent = String(Math.floor(this.remaining / 60)).padStart(2, '0') + ':' + String(this.remaining % 60).padStart(2, '0');
+      if (this.remaining <= 0) { clearInterval(this.tick); this.refresh(); }
+    };
+    paint(); this.tick = setInterval(paint, 1000);
+  },
+  startPolling() { clearInterval(this.poll); this.poll = setInterval(() => { if (!document.hidden) this.refresh(); }, 6000); },
+  stopTimers() { clearInterval(this.tick); clearInterval(this.poll); },
+
+  async refresh() {
+    try { this.applyHistory(await StashCloud.cafe.list()); } catch (e) { /* keep showing what we have */ }
+  },
+
+  async generate() {
+    if (this.busy || this.active) return;
+    const docId = document.getElementById('cafeDocSelect').value;
+    if (!docId) { this.msg('Choose a document first.'); return; }
+    this.msg(''); this.setBusy(true);
+    try {
+      const r = await StashCloud.cafe.create(docId);
+      if (r.status === 'ok') { this.pin = { code: r.pin_code, id: r.pin.id }; await this.refresh(); UI.toast('PIN ready'); }
+      else if (r.status === 'active_exists') { await this.refresh(); this.msg('You already have a live PIN. Cancel it first to make a new one.'); }
+      else if (r.status === 'rate_limited') this.msg('You’ve made a lot of PINs this hour. Please try again later.');
+      else if (r.status === 'not_ready' || r.status === 'object_missing') this.msg('That document isn’t fully uploaded yet, so it can’t get a PIN.');
+      else this.msg('That document isn’t available.');
+    } catch (e) {
+      this.msg(/email_not_verified/.test(e.message || '') ? 'Confirm your email address first.' : 'Could not make a PIN. Check your connection and try again.');
+    } finally { this.setBusy(false); }
+  },
+
+  async revoke() {
+    if (this.busy || !this.active) return;
+    this.setBusy(true);
+    try { await StashCloud.cafe.revoke(this.active.id); this.pin = null; await this.refresh(); UI.toast('PIN cancelled'); }
+    catch (e) { this.msg('Could not cancel the PIN. Try again.'); }
+    finally { this.setBusy(false); }
+  },
+
+  copy() {
+    if (!this.pin) return;
+    navigator.clipboard?.writeText(this.pin.code).then(() => UI.toast('PIN copied')).catch(() => UI.toast('Copy blocked — type the digits shown'));
+  }
+};
+
+/* =========================================================
+   CAFE PRINT PORTAL (public, no login)
+   Talks only to /api/cafe/*. The PIN is sent once and never stored; the signed URL and the receipt live in
+   this object's memory and are dropped by "Done" or when the tab closes. No logging of either.
    ========================================================= */
 const CafePrint = {
+  s: null,               // { receipt, title, mime }
+  objectUrl: null, blob: null, busy: false, cooldown: null,
+
   init() {
     document.getElementById('cafePinForm').addEventListener('submit', e => this.openPin(e));
-    document.getElementById('cafePrintBtn').addEventListener('click', () => window.print());
+    document.getElementById('cafePrintBtn').addEventListener('click', () => this.print());
+    document.getElementById('cafeRetryBtn').addEventListener('click', () => this.retry());
+    document.getElementById('cafeDoneBtn').addEventListener('click', () => this.reset());
+    document.getElementById('cafePinInput').addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6); });
+    window.addEventListener('pagehide', () => this.reset(true));
   },
+
+  async api(path, body) {
+    const r = await fetch('/api/cafe/' + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), credentials: 'omit', cache: 'no-store', referrerPolicy: 'no-referrer' });
+    let j = null; try { j = await r.json(); } catch (e) { /* ignore */ }
+    return { status: r.status, json: j || {}, retryAfter: parseInt(r.headers.get('Retry-After') || '0', 10) };
+  },
+  err(text) { const el = document.getElementById('cafePinError'); if (text) el.textContent = text; el.classList.toggle('hidden', !text); },
+  setPreview(title, line) {
+    const box = document.getElementById('cafeDocPreview'); box.textContent = '';
+    const h = document.createElement('h3'); h.textContent = title || 'Document'; const p = document.createElement('p'); p.textContent = line;
+    box.append(h, p);
+  },
+  lock(seconds) {
+    const btn = document.getElementById('cafeSubmitBtn'); clearInterval(this.cooldown); let left = seconds;
+    const paint = () => { btn.disabled = left > 0; btn.textContent = left > 0 ? `Please wait ${left}s` : 'Open document'; if (left-- <= 0) clearInterval(this.cooldown); };
+    paint(); this.cooldown = setInterval(paint, 1000);
+  },
+
   async openPin(e) {
     e.preventDefault();
-    const pin = document.getElementById('cafePinInput').value.trim();
-    const entry = await DB.consumePin(pin);
-    if (!entry) { UI.showFieldError('cafePinError'); document.getElementById('cafeResult').classList.add('hidden'); return; }
-    UI.hideFieldError('cafePinError');
-    const doc = entry.doc;
-    const cat = Views.categoryMeta(doc.category);
-    document.getElementById('cafeDocPreview').innerHTML = `
-      <h3>${escapeHTML(doc.name)}</h3>
-      <p>${cat.label} &middot; ${doc.level} &middot; ${doc.semester} semester${doc.course ? ' &middot; ' + escapeHTML(doc.course) : ''}</p>
-      <p>${escapeHTML(doc.referenceType || 'Reference')}: ${escapeHTML(doc.referenceNumber) || '\u2014'}</p>
-      <p>Amount: ${doc.amount ? '\u20a6' + Number(doc.amount).toLocaleString() : '\u2014'}</p>`;
-    await Documents.renderPrintArea(doc);
+    if (this.busy) return;
+    const input = document.getElementById('cafePinInput'), pin = input.value.trim();
+    this.err('');
+    if (!/^\d{6}$/.test(pin)) { this.err('Enter the 6-digit PIN.'); return; }
+    this.busy = true; document.getElementById('cafeSubmitBtn').disabled = true;
+    try {
+      const r = await this.api('redeem', { pin });
+      input.value = '';
+      if (r.status === 200 && r.json.ok) { await this.begin(r.json); }
+      else if (r.status === 502 && r.json.receipt) { this.s = { receipt: r.json.receipt, title: r.json.title, mime: r.json.mime_type }; this.showResult(); this.failed('The PIN worked, but the file could not be fetched.'); }
+      else if (r.status === 429) { this.err(`Too many attempts. Please wait ${Math.min(r.json.retry_after || r.retryAfter || 60, 3600)} seconds and try again.`); this.lock(Math.min(r.json.retry_after || r.retryAfter || 60, 900)); this.busy = false; return; }
+      else if (r.status === 404) { this.err('That PIN isn’t valid. It may have expired, been cancelled or already been used.'); }
+      else { this.err('Stash can’t be reached right now. Try again. If it keeps failing, ask the student to make a new PIN.'); }
+    } catch (er) {
+      this.err('No connection. Try again. If it keeps failing, ask the student to make a new PIN.');
+    }
+    this.busy = false; document.getElementById('cafeSubmitBtn').disabled = false;
+  },
+
+  showResult() {
     document.getElementById('cafeResult').classList.remove('hidden');
+    document.getElementById('cafePinForm').classList.add('hidden');
+  },
+
+  async begin(j) {
+    this.s = { receipt: j.receipt, title: j.title, mime: j.mime_type };
+    this.showResult(); this.setPreview(j.title, 'Getting your file…');
+    await this.download(j.url);
+  },
+
+  async download(url) {
+    const printBtn = document.getElementById('cafePrintBtn'), retry = document.getElementById('cafeRetryBtn');
+    printBtn.disabled = true; retry.classList.add('hidden');
+    try {
+      const f = await fetch(url, { credentials: 'omit', cache: 'no-store', referrerPolicy: 'no-referrer' });
+      if (!f.ok) throw new Error('http');
+      const blob = await f.blob();
+      if (this.objectUrl) URL.revokeObjectURL(this.objectUrl);
+      this.blob = blob; this.objectUrl = URL.createObjectURL(blob);
+      this.setPreview(this.s.title, 'Ready to print. This PIN has now been used.');
+      printBtn.disabled = false;
+    } catch (e) { this.failed('The file could not be downloaded.'); }
+  },
+
+  failed(why) {
+    this.setPreview(this.s.title, why + ' Press “Try again”. The PIN can’t be used a second time, but this screen can fetch the same document again for a few minutes.');
+    document.getElementById('cafePrintBtn').disabled = true;
+    document.getElementById('cafeRetryBtn').classList.remove('hidden');
+  },
+
+  async retry() {
+    if (!this.s || this.busy) return;
+    this.busy = true;
+    try {
+      const r = await this.api('refresh', { receipt: this.s.receipt });
+      if (r.status === 200 && r.json.ok) await this.download(r.json.url);
+      else if (r.status === 429) this.failed('Too many requests, wait a moment.');
+      else if (r.status === 404) { this.setPreview(this.s.title, 'This screen can’t fetch the document again. Ask the student to make a new PIN.'); document.getElementById('cafeRetryBtn').classList.add('hidden'); }
+      else this.failed('Still could not fetch the file.');
+    } catch (e) { this.failed('No connection.'); }
+    this.busy = false;
+  },
+
+  async print() {
+    if (!this.blob) return;
+    const area = document.getElementById('printArea'); area.textContent = '';
+    const type = (this.s.mime || this.blob.type || '').toLowerCase();
+    try {
+      if (type.startsWith('image/')) {
+        const img = new Image(); img.style.maxWidth = '100%'; img.src = this.objectUrl; await img.decode(); area.appendChild(img);
+      } else if (type === 'application/pdf' && typeof pdfjsLib !== 'undefined') {
+        const pdf = await pdfjsLib.getDocument({ data: await this.blob.arrayBuffer() }).promise;
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i), vp = page.getViewport({ scale: 1.6 }), c = document.createElement('canvas');
+          c.width = vp.width; c.height = vp.height; c.style.cssText = 'width:100%;display:block;page-break-after:always';
+          await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise; area.appendChild(c);
+        }
+      } else { window.open(this.objectUrl, '_blank', 'noopener'); return; }   // let the browser viewer print it
+      window.print();
+    } catch (e) { window.open(this.objectUrl, '_blank', 'noopener'); }
+  },
+
+  reset(quiet) {
+    clearInterval(this.cooldown);
+    if (this.objectUrl) URL.revokeObjectURL(this.objectUrl);
+    this.s = null; this.blob = null; this.objectUrl = null; this.busy = false;
+    const area = document.getElementById('printArea'); if (area) area.textContent = '';
+    if (quiet) return;
+    document.getElementById('cafeResult').classList.add('hidden');
+    document.getElementById('cafeRetryBtn').classList.add('hidden');
+    document.getElementById('cafePinForm').classList.remove('hidden');
+    document.getElementById('cafeDocPreview').textContent = '';
+    const b = document.getElementById('cafeSubmitBtn'); b.disabled = false; b.textContent = 'Open document';
+    this.err(''); document.getElementById('cafePinInput').focus();
   }
 };
 

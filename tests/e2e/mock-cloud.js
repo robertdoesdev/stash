@@ -5,13 +5,14 @@
  * corruptDownload = flip a byte on download; limit = {free, paid} (tests shrink it to exercise quota quickly). */
 const crypto = require('crypto');
 const MIME = ['application/pdf', 'image/jpeg', 'image/png'];
-const RPCS = new Set(['begin_upload', 'finalize_upload', 'mark_upload_failed', 'begin_delete', 'confirm_removed', 'update_document_meta', 'my_storage_usage', 'search_my_documents']);
+const RPCS = new Set(['begin_upload', 'finalize_upload', 'mark_upload_failed', 'begin_delete', 'confirm_removed', 'update_document_meta', 'my_storage_usage', 'search_my_documents', 'cafe_create_pin', 'cafe_my_pins', 'cafe_revoke_pin']);
 
 module.exports = function install(MockServer) {
   const P = MockServer.prototype, origReset = P.reset, origRpc = P.op_rpc;
   P.reset = function () {
     origReset.call(this);
     this.docs = new Map(); this.objects = new Map(); this.entitlements = new Map(); this.queue = [];
+    this.cafe = { pins: [], skew: 0, fails: new Map(), failSign: 0, calls: [] };   // TEST DOUBLE of 0004 (real SQL: tests/db/cafe_test.sql)
     this.cloud = { limit: { free: 1073741824, paid: 5368709120 }, failUploads: 0, failRpc: {}, truncate: false, corruptDownload: false };
   };
   const E = (m) => ({ error: { code: 'P0001', message: m, status: 400 } });
@@ -38,6 +39,52 @@ module.exports = function install(MockServer) {
     if (fail(this, name)) return { __network: true };
     if (!u) return E('not_authenticated');
     return this['rpc_' + name](u, args || {});
+  };
+
+
+  /* ---- Cafe Print double. The real rules live in 0004_cafe_print.sql and are tested on real PostgreSQL. ---- */
+  const cnow = s => Date.now() + s.cafe.skew;
+  const cview = (s, p) => { const d = s.docs.get(p.document_id) || {}; return { id: p.id, document_id: p.document_id, title: d.title, document_available: d.status === 'ready',
+    status: p.status === 'active' && p.expires_at <= cnow(s) ? 'expired' : p.status, created_at: new Date(p.created_at).toISOString(), expires_at: new Date(p.expires_at).toISOString(),
+    redeemed_at: p.redeemed_at ? new Date(p.redeemed_at).toISOString() : null, revoked_at: p.revoked_at ? new Date(p.revoked_at).toISOString() : null }; };
+  P.rpc_cafe_create_pin = function (u, a) {
+    if (!u.confirmed) return E('email_not_verified');
+    const d = this.docs.get(a.p_document_id);
+    for (const p of this.cafe.pins) if (p.owner === u.id && p.status === 'active' && p.expires_at <= cnow(this)) p.status = 'expired';
+    if (!d || d.user_id !== u.id) return J({ status: 'not_found' });
+    if (d.status !== 'ready') return J({ status: 'not_ready' });
+    const live = this.cafe.pins.find(p => p.owner === u.id && p.status === 'active');
+    if (live) return J({ status: 'active_exists', pin: cview(this, live), server_now: new Date(cnow(this)).toISOString() });
+    let code; do { code = String(crypto.randomInt(0, 1000000)).padStart(6, '0'); } while (this.cafe.pins.some(p => p.status === 'active' && p.code === code));
+    const p = { id: crypto.randomUUID(), owner: u.id, document_id: d.id, code, status: 'active', created_at: cnow(this), expires_at: cnow(this) + 600000, redeemed_at: null, revoked_at: null };
+    this.cafe.pins.unshift(p);
+    return J({ status: 'ok', pin_code: code, pin: cview(this, p), server_now: new Date(cnow(this)).toISOString() });
+  };
+  P.rpc_cafe_my_pins = function (u) { return J({ server_now: new Date(cnow(this)).toISOString(), pins: this.cafe.pins.filter(p => p.owner === u.id).map(p => cview(this, p)) }); };
+  P.rpc_cafe_revoke_pin = function (u, a) {
+    const p = this.cafe.pins.find(x => x.id === a.p_id && x.owner === u.id);
+    if (!p) return J({ status: 'not_found' });
+    if (p.status !== 'active' || p.expires_at <= cnow(this)) return J({ status: 'not_active' });
+    p.status = 'revoked'; p.revoked_at = cnow(this); return J({ status: 'revoked', pin: cview(this, p) });
+  };
+  /* the Vercel endpoints, as the browser sees them: returns {status, body, headers} */
+  P.cafeHttp = function (path, body, ip) {
+    const c = this.cafe; c.calls.push(path);
+    const f = c.fails.get(ip) || { n: 0, until: 0 };
+    if (f.until > Date.now()) return { status: 429, headers: { 'retry-after': '30' }, body: { ok: false, error: 'rate_limited', retry_after: 30 } };
+    if (path === 'redeem') {
+      const p = c.pins.find(x => x.code === body.pin && x.status === 'active' && x.expires_at > cnow(this));
+      const d = p && this.docs.get(p.document_id);
+      if (!p || !d || d.status !== 'ready') { f.n++; if (f.n >= 5) { f.until = Date.now() + 30000; f.n = 0; } c.fails.set(ip, f); return { status: 404, body: { ok: false, error: 'invalid' } }; }
+      p.status = 'redeemed'; p.redeemed_at = cnow(this); p.receipt = crypto.randomBytes(32).toString('hex'); p.uses = 0;
+      const out = { title: d.title, mime_type: d.mime_type, receipt: p.receipt, receipt_ttl: 300 };
+      if (c.failSign > 0) { c.failSign--; return { status: 502, body: Object.assign({ ok: false, error: 'retrieval_failed' }, out) }; }
+      return { status: 200, body: Object.assign({ ok: true, url: 'https://mock.supabase.co/storage/v1/object/sign/documents/' + d.storage_path + '?token=t' + crypto.randomBytes(4).toString('hex'), expires_in: 90 }, out) };
+    }
+    const p = c.pins.find(x => x.receipt && x.receipt === body.receipt && x.status === 'redeemed' && x.uses < 3);
+    if (!p) return { status: 404, body: { ok: false, error: 'invalid' } };
+    p.uses++; const d = this.docs.get(p.document_id);
+    return { status: 200, body: { ok: true, url: 'https://mock.supabase.co/storage/v1/object/sign/documents/' + d.storage_path + '?token=r' + crypto.randomBytes(4).toString('hex'), expires_in: 90, title: d.title, mime_type: d.mime_type, refreshes_left: 3 - p.uses } };
   };
 
   P.rpc_begin_upload = function (u, a) {

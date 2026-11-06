@@ -285,6 +285,17 @@
     start(uid) { if (load(uid).enabled) schedule(uid, 800, true); },
     async localOnly(fn) { localOnlyDepth++; try { return await fn(); } finally { localOnlyDepth--; } },
     async usage() { return rpc('my_storage_usage'); },
+    /* Cafe Print (server-authoritative; PINs are made and stored by the database, never in the browser). */
+    cafe: {
+      async docs() {            // only documents the SERVER says are fully uploaded
+        const { data, error } = await client().from('documents').select('id,title,local_ref,status').eq('status', 'ready').order('title');
+        if (error) { const e = new Error(error.message || 'documents'); e.status = error.status; throw e; }
+        return data || [];
+      },
+      create(documentId) { return rpc('cafe_create_pin', { p_document_id: documentId }); },
+      list() { return rpc('cafe_my_pins'); },
+      revoke(id) { return rpc('cafe_revoke_pin', { p_id: id }); }
+    },
     async search(query, category) { return rpc('search_my_documents', { p_query: query || '', p_category: category || null, p_limit: 100, p_offset: 0 }); },
     async purgeAllForAccountDeletion(uid) {   // best effort; the server also queues anything left
       try {

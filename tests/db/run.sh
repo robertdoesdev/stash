@@ -44,3 +44,16 @@ echo "=== PHASE 3 upgrade path: live Phase 2 data -> 0003 ==="
 $P0 -d stash_up -f "$HERE/storage_stub.sql" 2>&1 | grep -v NOTICE || true
 $P0 -d stash_up -f "$M3" 2>&1 | grep -v NOTICE || true
 $Q -d stash_up -c "select 'UPGRADE3 profiles intact: ' || (count(*)=2 and bool_or(matric_number is not null)) from public.profiles"
+
+echo "=== PHASE 4a: 0004 Cafe Print ==="
+M4="${M4_OVERRIDE:-$ROOT/supabase/migrations/0004_cafe_print.sql}"
+$P0 -c "create database stash_cafe"
+$P0 -d stash_cafe -f "$HERE/auth_stub.sql" 2>&1 | grep -v NOTICE || true
+$P0 -d stash_cafe -f "$HERE/storage_stub.sql" 2>&1 | grep -v NOTICE || true
+for f in "$M1" "$M2" "$M3" "$M4"; do $P0 -d stash_cafe -f "$f" 2>&1 | grep -v NOTICE || true; done
+PEPPER1=$($Q -d stash_cafe -c "select md5(pepper) from public.cafe_settings")
+for f in "$M4" "$M3" "$M4"; do $P0 -d stash_cafe -f "$f" 2>&1 | grep -v NOTICE || true; done
+PEPPER2=$($Q -d stash_cafe -c "select md5(pepper) from public.cafe_settings")
+[ "$PEPPER1" = "$PEPPER2" ] && echo "PASS 0004 re-applies cleanly and keeps the same pepper (existing PINs stay valid)" || echo "FAIL 0004 changed the pepper on re-apply"
+$Q -d stash_cafe -F ' ' -f "$HERE/cafe_test.sql" 2>&1 | grep -E "^(PASS|FAIL|TOTAL)|ERROR"
+bash "$HERE/cafe_concurrency.sh" "$D" "$PORT" "$PGBIN"
